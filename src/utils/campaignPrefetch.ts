@@ -1,18 +1,22 @@
 // src/utils/campaignPrefetch.ts
 // Util TypeScript: prefetch + cache con cancelación y debounce
-// Ajusta la URL del endpoint `/api/campaigns/${id}` a la que use tu backend si es diferente.
+// Ajusta la URL del endpoint usando NEXT_PUBLIC_API_BASE o la ruta por defecto `/api`.
 
 type CampaignDetails = any;
 
 const campaignCache = new Map<string, CampaignDetails>();
 const inflight = new Map<string, { controller: AbortController; promise: Promise<CampaignDetails> }>();
 
+// Base URL configurable vía variable de entorno (p. ej. NEXT_PUBLIC_API_BASE)
+const API_BASE = (typeof process !== 'undefined' && (process.env as any).NEXT_PUBLIC_API_BASE) || '';
+
 export function getCampaignFromCache(id: string): CampaignDetails | undefined {
   return campaignCache.get(id);
 }
 
 export async function fetchCampaignDetails(id: string, signal?: AbortSignal): Promise<CampaignDetails> {
-  const res = await fetch(`/api/campaigns/${id}`, { signal });
+  const url = `${API_BASE}/api/campaigns/${id}`.replace(/([^:]?)\/\//g, '$1/');
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error('Fetch error');
   return res.json();
 }
