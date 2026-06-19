@@ -6,7 +6,6 @@ import { AIAssistant } from "./components/AIAssistant";
 import { CreateChoiceModal } from "./components/CreateChoiceModal";
 import { Frame00Home } from "./components/Frame00Home";
 import { Frame01Login } from "./components/Frame01Login";
-import { Frame01bSignup } from "./components/Frame01bSignup";
 import { Frame01cLoading } from "./components/Frame01cLoading";
 import { Frame02Dashboard } from "./components/Frame02Dashboard";
 import { Frame02bCampaignList } from "./components/Frame02bCampaignList";
@@ -20,12 +19,10 @@ import { Frame02hCreateChoice } from "./components/Frame02hCreateChoice";
 import { Frame03CampaignSetup } from "./components/Frame03CampaignSetup";
 import { Frame04PreviewBuilder } from "./components/Frame04PreviewBuilder";
 import { Frame05Presentation } from "./components/Frame05Presentation";
-import { FrameBlog } from "./components/FrameBlog";
 
 type Screen =
   | "home"
   | "login"
-  | "signup"
   | "loading"
   | "dashboard"
   | "campaigns"
@@ -38,8 +35,7 @@ type Screen =
   | "create-ai"
   | "campaign-detail"
   | "builder"
-  | "presentation"
-  | "blog";
+  | "presentation";
 
 export interface UploadedPiece {
   id: string;
@@ -121,20 +117,18 @@ const DEFAULT_CAMPAIGN: CampaignState = {
 
 const FRAME_NAV: { key: Screen; label: string; num: string }[] = [
   { key: "home",            label: "Home",            num: "00" },
-  { key: "blog",            label: "Blog / Academy",  num: "00b" },
   { key: "login",           label: "Login",           num: "01" },
-  { key: "signup",          label: "Sign Up",         num: "01b" },
-  { key: "loading",         label: "Loading",         num: "01c" },
-  { key: "create-ai",       label: "Assistant",       num: "02g" },
-  { key: "dashboard",       label: "Dashboard",       num: "02" },
-  { key: "campaigns",       label: "Campaigns",       num: "02b" },
-  { key: "accounts",        label: "Accounts",        num: "02c" },
-  { key: "approvals",       label: "Approvals",       num: "02d" },
-  { key: "campaign-detail", label: "Campaign Detail", num: "03" },
-  { key: "builder",         label: "Preview Builder", num: "04" },
-  { key: "presentation",    label: "Presentation",    num: "05" },
-  { key: "settings",        label: "Settings",        num: "02e" },
-  { key: "help",            label: "Help",            num: "02f" },
+  { key: "loading",         label: "Loading",         num: "02" },
+  { key: "create-ai",       label: "Assistant",       num: "03" },
+  { key: "dashboard",       label: "Dashboard",       num: "04" },
+  { key: "campaigns",       label: "Campaigns",       num: "05" },
+  { key: "accounts",        label: "Accounts",        num: "06" },
+  { key: "approvals",       label: "Approvals",       num: "07" },
+  { key: "campaign-detail", label: "Campaign Detail", num: "08" },
+  { key: "builder",         label: "Preview Builder", num: "09" },
+  { key: "presentation",    label: "Presentation",    num: "10" },
+  { key: "settings",        label: "Settings",        num: "11" },
+  { key: "help",            label: "Help",            num: "12" },
 ];
 
 export default function App() {
@@ -149,7 +143,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [choiceOpen, setChoiceOpen] = useState(false);
   const [cookieAccepted, setCookieAccepted] = useState<boolean | null>(null);
-  const PUBLIC_SCREENS: Screen[] = ["home", "login", "signup", "loading", "blog"];
+  const PUBLIC_SCREENS: Screen[] = ["home", "login", "loading"];
   const showAssistant = !PUBLIC_SCREENS.includes(screen) && screen !== "create-ai";
 
   const go = (s: Screen) => setScreen(s);
@@ -183,23 +177,11 @@ export default function App() {
         >
           {screen === "home" && (
             <Frame00Home
-              onGetStarted={() => go("signup")}
               onSignIn={() => go("login")}
-              onBlog={() => go("blog")}
             />
-          )}
-          {screen === "blog" && (
-            <FrameBlog onBack={() => go("home")} onGetStarted={() => go("signup")} />
           )}
           {screen === "login" && (
-            <Frame01Login onLogin={() => go("loading")} onCreateAccount={() => go("signup")} onHome={() => go("home")} />
-          )}
-          {screen === "signup" && (
-            <Frame01bSignup
-              onSignup={() => go("loading")}
-              onSignIn={() => go("login")}
-              onHome={() => go("home")}
-            />
+            <Frame01Login onLogin={() => go("loading")} onHome={() => go("home")} />
           )}
           {screen === "loading" && (
             <Frame01cLoading onDone={() => go("create-ai")} dark={dark} />

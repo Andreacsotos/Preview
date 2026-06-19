@@ -4,7 +4,6 @@ import { Lock, Eye, EyeOff, ArrowLeft, Check } from "lucide-react";
 
 interface Props {
   onLogin: () => void;
-  onCreateAccount?: () => void;
   onHome?: () => void;
 }
 
@@ -14,7 +13,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type Step = "login" | "email" | "code" | "reset" | "success";
 
-export function Frame01Login({ onLogin, onCreateAccount, onHome }: Props) {
+export function Frame01Login({ onLogin, onHome }: Props) {
   const [step, setStep] = useState<Step>("login");
   const [showPass, setShowPass] = useState(false);
 
@@ -34,6 +33,8 @@ export function Frame01Login({ onLogin, onCreateAccount, onHome }: Props) {
   const [resetErr, setResetErr] = useState<{ p?: string; c?: string }>({});
 
   const inputBox = (hasErr: boolean) => ({ background: "#fff", border: `1px solid ${hasErr ? ERR : "#E3E6EB"}` });
+
+  const isLoginFormValid = email.trim() !== "" && password.trim() !== "";
 
   // ── handlers ──
   const handleLogin = () => {
@@ -165,25 +166,24 @@ export function Frame01Login({ onLogin, onCreateAccount, onHome }: Props) {
                 <div className="flex flex-col gap-3">
                   <div>
                     <div className="w-full h-[50px] rounded-xl px-4 flex items-center" style={inputBox(!!errors.email)}>
-                      <input type="email" value={email} placeholder="Correo laboral" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
+                      <input type="email" required value={email} placeholder="Correo laboral" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
                         onChange={(e) => { setEmail(e.target.value); if (errors.email) setErrors((p) => ({ ...p, email: undefined })); }}
-                        onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
+                        onKeyDown={(e) => e.key === "Enter" && isLoginFormValid && handleLogin()} />
                     </div>
                     {errors.email && <p className="text-[12px] mt-1.5 ml-1" style={{ color: ERR }}>{errors.email}</p>}
                   </div>
                   <div>
                     <div className="w-full h-[50px] rounded-xl px-4 flex items-center gap-2" style={inputBox(!!errors.password)}>
-                      <input type={showPass ? "text" : "password"} value={password} placeholder="Contraseña" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
+                      <input type={showPass ? "text" : "password"} required value={password} placeholder="Contraseña" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
                         onChange={(e) => { setPassword(e.target.value); if (errors.password) setErrors((p) => ({ ...p, password: undefined })); }}
-                        onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
+                        onKeyDown={(e) => e.key === "Enter" && isLoginFormValid && handleLogin()} />
                       <button onClick={() => setShowPass(!showPass)} className="cursor-pointer" style={{ color: "#9aa3b2" }}>{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button>
                     </div>
                     {errors.password && <p className="text-[12px] mt-1.5 ml-1" style={{ color: ERR }}>{errors.password}</p>}
                   </div>
                 </div>
                 <span onClick={() => setStep("email")} className="text-[13px] font-medium mt-3 cursor-pointer w-fit" style={{ color: ACCENT }}>¿Olvidaste tu contraseña?</span>
-                <button onClick={handleLogin} className="ls-primary w-full h-[50px] rounded-xl text-[15px] font-semibold mt-5 text-white" style={{ background: ACCENT }}>Continuar</button>
-                <p className="text-[13px] text-center mt-6" style={{ color: "#5b6473" }}>¿No tienes cuenta? <span onClick={onCreateAccount} className="cursor-pointer font-medium" style={{ color: ACCENT }}>Crear cuenta</span></p>
+                <button onClick={handleLogin} disabled={!isLoginFormValid} className="ls-primary w-full h-[50px] rounded-xl text-[15px] font-semibold mt-5 text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-none" style={{ background: ACCENT }}>Continuar</button>
               </>
             )}
 

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft, ChevronRight, Folder, HelpCircle,
@@ -272,13 +272,12 @@ async function buildHtmlBannerPiece(htmlFile: File, groupFiles: File[], bannerRo
   } catch { return null; }
 }
 
-// ─── Font Picker ───────────────────────────────────────────────────────────────
+// ─── Font Pickers (Google Fonts search + local upload are independent fields) ──
 
-function FontPicker({ value, onChange }: { value: string | null; onChange: (f: string | null) => void }) {
+function GoogleFontPicker({ value, onChange }: { value: string | null; onChange: (f: string | null) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-  const fontRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -306,18 +305,6 @@ function FontPicker({ value, onChange }: { value: string | null; onChange: (f: s
 
   return (
     <div className="relative" ref={ref}>
-      <input ref={fontRef} type="file" accept=".ttf,.woff,.woff2,.otf" className="hidden" onChange={(e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const name = file.name.replace(/\.[^.]+$/, "");
-        const url = URL.createObjectURL(file);
-        const style = document.createElement("style");
-        style.textContent = `@font-face { font-family: "${name}"; src: url("${url}"); }`;
-        document.head.appendChild(style);
-        onChange(name);
-        e.target.value = "";
-      }} />
-
       {value ? (
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5">
@@ -372,18 +359,47 @@ function FontPicker({ value, onChange }: { value: string | null; onChange: (f: s
                 <p className="px-3.5 py-4 text-[12px] text-gray-400 text-center">No fonts match "{query}"</p>
               )}
             </div>
-            <div className="border-t border-gray-100 p-2">
-              <button
-                onClick={() => { setOpen(false); fontRef.current?.click(); }}
-                className="w-full flex items-center gap-1.5 text-gray-400 hover:text-gray-600 text-[12px] py-1.5 px-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
-              >
-                <Upload size={11} />
-                Upload custom font (.ttf, .woff, .woff2)
-              </button>
-            </div>
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function LocalFontUploader({ value, onChange }: { value: string | null; onChange: (f: string | null) => void }) {
+  const fontRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="relative">
+      <input ref={fontRef} type="file" accept=".ttf,.woff,.woff2,.otf" className="hidden" onChange={(e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const name = file.name.replace(/\.[^.]+$/, "");
+        const url = URL.createObjectURL(file);
+        const style = document.createElement("style");
+        style.textContent = `@font-face { font-family: "${name}"; src: url("${url}"); }`;
+        document.head.appendChild(style);
+        onChange(name);
+        e.target.value = "";
+      }} />
+
+      {value ? (
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5">
+            <Type size={12} className="text-gray-400 shrink-0" />
+            <span style={{ fontFamily: `${value}, sans-serif` }} className="text-gray-800 text-[13px]">{value}</span>
+          </div>
+          <button onClick={() => onChange(null)} className="text-gray-300 hover:text-gray-500 cursor-pointer transition-colors"><X size={13} /></button>
+        </div>
+      ) : (
+        <button
+          onClick={() => fontRef.current?.click()}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 cursor-pointer transition-colors bg-gray-50 border border-gray-100 hover:border-gray-300"
+        >
+          <Upload size={11} className="text-gray-400" />
+          <span className="text-[12px] text-gray-500">Upload custom font (.ttf, .woff, .woff2)</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -479,8 +495,6 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
   const [detecting, setDetecting] = useState(false);
   const [localGroups, setLocalGroups] = useState<Record<string, Record<string, UploadedPiece[]>>>({});
   const [brandColors, setBrandColors] = useState<string[]>([]);
-  const [lastInteraction, setLastInteraction] = useState<number | null>(null);
-  const [autoProgress, setAutoProgress] = useState(0);
 
   // Invite modal
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -488,36 +502,18 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
   const [inviteRole, setInviteRole] = useState("Designer");
 
   const logoRef    = useRef<HTMLInputElement>(null);
-  const heroRef    = useRef<HTMLInputElement>(null);
   const bannersRef = useRef<HTMLInputElement>(null);
   const folderRef  = useRef<HTMLInputElement>(null);
   const colorRef   = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
 
-  const goStep = (s: number) => { setDirection(s > step ? 1 : -1); setStep(s); setAutoProgress(0); setLastInteraction(null); };
+  const goStep = (s: number) => { setDirection(s > step ? 1 : -1); setStep(s); };
   const handleBack = () => step === 2 ? goStep(1) : onBack();
 
-  // ── Interaction tracking for auto-advance ─────────────────────────────────
-  const nudge = useCallback(() => setLastInteraction(Date.now()), []);
-
-  useEffect(() => {
-    if (step !== 1 || !lastInteraction) { setAutoProgress(0); return; }
-    const DURATION = 3000;
-    const start = lastInteraction;
-    let raf: number;
-    const tick = () => {
-      const elapsed = Date.now() - start;
-      const progress = Math.min(elapsed / DURATION, 1);
-      setAutoProgress(progress);
-      if (progress < 1) {
-        raf = requestAnimationFrame(tick);
-      } else {
-        goStep(2);
-      }
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [lastInteraction, step]);
+  // ── Step 1 required-field validation (drives the CTA) ──────────────────────
+  const STEP1_REQUIRED_FIELDS: (keyof CampaignState)[] = ["campaignName", "clientName", "shippingDate"];
+  const step1FilledCount = STEP1_REQUIRED_FIELDS.filter((k) => String(campaign[k] ?? "").trim() !== "").length;
+  const step1Complete = step1FilledCount === STEP1_REQUIRED_FIELDS.length;
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const subCampaignNames = Object.keys(localGroups).sort();
@@ -528,29 +524,19 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
   const hasUploads = totalPieces > 0;
   const currentTemplate = COVER_TEMPLATES.find((t) => t.id === campaign.coverTemplate) ?? COVER_TEMPLATES[0];
 
-  // ── Logo / hero handlers ───────────────────────────────────────────────────
+  // ── Logo handler ────────────────────────────────────────────────────────────
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (campaign.logoUrl) URL.revokeObjectURL(campaign.logoUrl);
     onUpdate({ logoName: file.name, logoUrl: URL.createObjectURL(file) });
-    nudge();
-  };
-  const handleHeroChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (campaign.heroUrl) URL.revokeObjectURL(campaign.heroUrl);
-    onUpdate({ heroName: file.name, heroUrl: URL.createObjectURL(file) });
-    nudge();
   };
   const removeLogo = () => { if (campaign.logoUrl) URL.revokeObjectURL(campaign.logoUrl); onUpdate({ logoName: null, logoUrl: null }); if (logoRef.current) logoRef.current.value = ""; };
-  const removeHero = () => { if (campaign.heroUrl) URL.revokeObjectURL(campaign.heroUrl); onUpdate({ heroName: null, heroUrl: null }); if (heroRef.current) heroRef.current.value = ""; };
 
   // ── Template selection (auto-sets background) ─────────────────────────────
   const selectTemplate = (id: string) => {
     const tmpl = COVER_TEMPLATES.find((t) => t.id === id);
     onUpdate({ coverTemplate: id, selectedBg: tmpl?.selectedBg ?? "white" });
-    nudge();
   };
 
   // ── Brand colors ──────────────────────────────────────────────────────────
@@ -559,7 +545,6 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
     const next = [...brandColors, hex];
     setBrandColors(next);
     onUpdate({ brandColor: next[0], brandColors: next });
-    nudge();
   };
   const removeColor = (hex: string) => {
     const next = brandColors.filter((c) => c !== hex);
@@ -894,7 +879,6 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                             { label: "Nombre de campaña", key: "campaignName" as const, type: "text", placeholder: "ej. Venta de Verano 2026" },
                             { label: "Cliente / Marca",   key: "clientName"   as const, type: "text", placeholder: "ej. Éxito" },
                             { label: "Fecha de entrega",  key: "shippingDate" as const, type: "date", placeholder: "" },
-                            { label: "Ronda de revisión", key: "reviewRound"  as const, type: "text", placeholder: "ej. Ronda 1" },
                           ].map(({ label, key, type, placeholder }) => (
                             <div key={label} className="flex items-center gap-4">
                               <span className="text-[12px] w-36 shrink-0" style={{ color: T.sub }}>{label}</span>
@@ -902,7 +886,7 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                                 type={type}
                                 value={campaign[key]}
                                 placeholder={placeholder}
-                                onChange={(e) => { onUpdate({ [key]: e.target.value }); nudge(); }}
+                                onChange={(e) => onUpdate({ [key]: e.target.value })}
                                 className="flex-1 rounded-lg px-3 py-1.5 text-[13px] placeholder-gray-300 outline-none transition-colors"
                                 style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
                               />
@@ -916,7 +900,7 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                         <div className="flex items-center justify-between mb-4">
                           <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: T.sub }}>Portada del preview</p>
                           <button
-                            onClick={() => { onUpdate({ includeCover: !campaign.includeCover }); nudge(); }}
+                            onClick={() => onUpdate({ includeCover: !campaign.includeCover })}
                             className="relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer shrink-0"
                             style={{ background: campaign.includeCover ? ACCENT : (dark ? "#3a3a44" : "#d1d5db") }}
                           >
@@ -953,7 +937,7 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                                     <span className="text-[12px] w-36 shrink-0" style={{ color: T.sub }}>Color de fondo</span>
                                     <div className="flex items-center gap-2">
                                       {CUSTOM_BG_OPTIONS.map((bg) => (
-                                        <button key={bg.id} onClick={() => { onUpdate({ selectedBg: bg.id }); nudge(); }} title={bg.label}
+                                        <button key={bg.id} onClick={() => onUpdate({ selectedBg: bg.id })} title={bg.label}
                                           className={`w-6 h-6 rounded-full border-2 cursor-pointer transition-all duration-100 ${bg.cls} ${campaign.selectedBg === bg.id ? "ring-2 ring-offset-1 ring-blue-400" : ""}`} />
                                       ))}
                                     </div>
@@ -961,7 +945,7 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                                 )}
                               </AnimatePresence>
 
-                              {/* Logo + Hero */}
+                              {/* Logo */}
                               <div className="space-y-3">
                                 <div className="flex items-center gap-4">
                                   <span className="text-[12px] w-36 shrink-0" style={{ color: T.sub }}>Logo</span>
@@ -980,23 +964,6 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                                     </button>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-4">
-                                  <span className="text-[12px] w-36 shrink-0" style={{ color: T.sub }}>Imagen de portada</span>
-                                  <input ref={heroRef} type="file" accept="image/*" className="hidden" onChange={handleHeroChange} />
-                                  {campaign.heroUrl ? (
-                                    <div className="flex items-center gap-2.5">
-                                      <div className="w-14 h-9 rounded-lg border overflow-hidden shrink-0" style={{ borderColor: T.border }}>
-                                        <img src={campaign.heroUrl} alt="hero" className="w-full h-full object-cover" />
-                                      </div>
-                                      <span className="text-[12px] font-medium max-w-[100px] truncate" style={{ color: T.text }}>{campaign.heroName}</span>
-                                      <button onClick={removeHero} className="text-[11px] cursor-pointer transition-colors" style={{ color: T.sub }}>Quitar</button>
-                                    </div>
-                                  ) : (
-                                    <button onClick={() => heroRef.current?.click()} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 cursor-pointer transition-colors" style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.sub }}>
-                                      <Upload size={11} /><span className="text-[12px]">Subir imagen</span>
-                                    </button>
-                                  )}
-                                </div>
                               </div>
                             </motion.div>
                           )}
@@ -1008,8 +975,12 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                         <p className="text-[11px] font-semibold uppercase tracking-widest mb-4" style={{ color: T.sub }}>Identidad de marca</p>
                         <div className="space-y-3">
                           <div className="flex items-start gap-4">
-                            <span className="text-[12px] w-36 shrink-0 pt-1" style={{ color: T.sub }}>Fuente</span>
-                            <FontPicker value={campaign.brandFont} onChange={(f) => { onUpdate({ brandFont: f }); nudge(); }} />
+                            <span className="text-[12px] w-36 shrink-0 pt-1" style={{ color: T.sub }}>Fuente (Google Fonts)</span>
+                            <GoogleFontPicker value={campaign.brandFont} onChange={(f) => onUpdate({ brandFont: f })} />
+                          </div>
+                          <div className="flex items-start gap-4">
+                            <span className="text-[12px] w-36 shrink-0 pt-1" style={{ color: T.sub }}>Fuente local</span>
+                            <LocalFontUploader value={campaign.brandFont} onChange={(f) => onUpdate({ brandFont: f })} />
                           </div>
                           <div className="flex items-start gap-4">
                             <span className="text-[12px] w-36 shrink-0 pt-1.5" style={{ color: T.sub }}>Colores</span>
@@ -1034,35 +1005,24 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                         </div>
                       </div>
 
-                      {/* ── Auto-advance indicator ── */}
-                      <AnimatePresence>
-                        {lastInteraction && (
-                          <motion.div
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 6 }}
-                            transition={{ duration: 0.2 }}
-                            className="mt-2 mb-4"
-                          >
-                            <div className="flex items-center justify-between mb-1.5">
-                              <p className="text-[12px]" style={{ color: T.sub }}>Continuando a Assets y Formatos…</p>
-                              <button
-                                onClick={() => { setLastInteraction(null); setAutoProgress(0); }}
-                                className="text-[11px] cursor-pointer transition-colors"
-                                style={{ color: T.sub }}
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                            <div className="w-full h-0.5 rounded-full overflow-hidden" style={{ background: T.border }}>
-                              <motion.div
-                                className="h-full rounded-full"
-                                style={{ width: `${autoProgress * 100}%`, background: ACCENT }}
-                              />
-                            </div>
-                          </motion.div>
+                      {/* ── CTA ── */}
+                      <div className="mt-2 mb-4">
+                        <button
+                          onClick={() => step1Complete && goStep(2)}
+                          disabled={!step1Complete}
+                          className="w-full h-[44px] rounded-xl text-[14px] font-semibold transition-all duration-200 cursor-pointer disabled:cursor-not-allowed"
+                          style={step1Complete
+                            ? { background: ACCENT, color: "#fff" }
+                            : { background: T.hover, color: T.sub }}
+                        >
+                          Continuar a Assets y Formatos
+                        </button>
+                        {!step1Complete && (
+                          <p className="text-[11px] mt-1.5 text-center" style={{ color: T.sub }}>
+                            Completa {STEP1_REQUIRED_FIELDS.length - step1FilledCount} campo{STEP1_REQUIRED_FIELDS.length - step1FilledCount === 1 ? "" : "s"} más para continuar
+                          </p>
                         )}
-                      </AnimatePresence>
+                      </div>
                     </>
                   )}
 
@@ -1202,7 +1162,6 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                               { label: "Campaña",  value: campaign.campaignName || "—" },
                               { label: "Cliente",  value: campaign.clientName || "—" },
                               { label: "Entrega",  value: campaign.shippingDate || "—" },
-                              { label: "Revisión", value: campaign.reviewRound || "—" },
                               { label: "Fuente",   value: campaign.brandFont || "Por defecto" },
                               { label: "Colores",  value: brandColors.length > 0 ? (
                                 <div className="flex items-center gap-1">
