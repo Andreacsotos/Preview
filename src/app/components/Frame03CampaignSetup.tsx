@@ -5,7 +5,18 @@ import {
   ArrowLeft, ChevronRight, Folder, HelpCircle,
   LayoutGrid, Plus, Settings, Upload, X, Zap, Search, Type,
 } from "lucide-react";
+import { readPsd, initializeCanvas } from "ag-psd";
 import type { CampaignState, UploadedPiece } from "../App";
+import { Sidebar } from "./Sidebar";
+import { storeBanner, registerBannerSW } from "../lib/bannerSW";
+
+if (typeof document !== "undefined") {
+  initializeCanvas((width: number, height: number) => {
+    const c = document.createElement("canvas");
+    c.width = width; c.height = height;
+    return c as any;
+  });
+}
 
 interface Props {
   onBack: () => void;
@@ -13,6 +24,8 @@ interface Props {
   onOpenBuilder: () => void;
   campaign: CampaignState;
   onUpdate: (updates: Partial<CampaignState>) => void;
+  dark?: boolean;
+  setDark?: (v: boolean) => void;
 }
 
 // ─── Cover templates ───────────────────────────────────────────────────────────
@@ -187,7 +200,77 @@ function buildGrouped(entries: { file: File; pathParts: string[] }[]): Record<st
 }
 
 const formats = ["Social", "Display Ads", "Hero Banner", "Stories", "Custom"];
-const STEP_LABELS = ["Campaign Details", "Assets & Formats"];
+const STEP_LABELS = ["Detalles de campaña", "Assets y Formatos"];
+
+// ─── PSD artboard extraction ───────────────────────────────────────────────────
+async function extractPsdArtboards(file: File): Promise<UploadedPiece[]> {
+  const buf = await file.arrayBuffer();
+  const psd = readPsd(buf, { skipThumbnail: true });
+  const composite: HTMLCanvasElement | undefined = psd.canvas;
+  const base = file.name.replace(/\.psd$/i, "");
+  const out: UploadedPiece[] = [];
+
+  const artboards: any[] = [];
+  const walk = (nodes: any[]) => { for (const n of nodes) { if (n?.artboard?.rect) artboards.push(n); if (Array.isArray(n?.children)) walk(n.children); } };
+  walk(psd.children ?? []);
+
+  const cropToUrl = (l: number, t: number, w: number, h: number, src: HTMLCanvasElement) => {
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    cv.getContext("2d")!.drawImage(src, l, t, w, h, 0, 0, w, h);
+    return cv.toDataURL("image/png");
+  };
+
+  if (artboards.length && composite) {
+    artboards.forEach((ab: any, i: number) => {
+      const r = ab.artboard.rect;
+      const l = Math.round(Math.max(0, r.left)), t = Math.round(Math.max(0, r.top));
+      const w = Math.round(r.right - r.left), h = Math.round(r.bottom - r.top);
+      if (w <= 0 || h <= 0) return;
+      const url = ab.canvas?.width ? ab.canvas.toDataURL("image/png") : cropToUrl(l, t, w, h, composite);
+      out.push({ id: `up-${++_uid}`, name: ab.name || `${base} — Mesa ${i + 1}`, dim: `${w}×${h}`, ar: w / h, imageUrl: url, fileType: "image", fileName: file.name });
+    });
+  }
+  if (!out.length && composite) {
+    out.push({ id: `up-${++_uid}`, name: base, dim: `${composite.width}×${composite.height}`, ar: composite.width / composite.height, imageUrl: composite.toDataURL("image/png"), fileType: "image", fileName: file.name });
+  }
+  return out;
+}
+
+// ─── HTML5 banner (via Service Worker) ────────────────────────────────────────
+let _bannerId03 = 0;
+const ENABLER_STUB_03 = `<script>(function(){var base={isInitialized:function(){return true;},isVisible:function(){return true;},isPageLoaded:function(){return true;},isServingInLiveEnvironment:function(){return false;},addEventListener:function(t,fn){setTimeout(function(){try{fn({});}catch(e){}},0);},removeEventListener:function(){},getUrl:function(u){return u;},getParameter:function(){return '';},getDevDinamicContent:function(){return null;}};window.Enabler=new Proxy(base,{get:function(t,p){return p in t?t[p]:function(){return undefined;};}});})();<\/script>`;
+
+async function buildHtmlBannerPiece(htmlFile: File, groupFiles: File[], bannerRoot: string): Promise<UploadedPiece | null> {
+  try {
+    const id = `b03-${++_bannerId03}-${Date.now()}`;
+    const swFiles: { path: string; file: File }[] = [];
+    for (const f of groupFiles) {
+      const rel = (f as any).webkitRelativePath as string | undefined;
+      const path = rel && bannerRoot && rel.startsWith(bannerRoot + "/") ? rel.slice(bannerRoot.length + 1) : f.name;
+      swFiles.push({ path, file: f });
+    }
+    swFiles.push({ path: "index.html", file: htmlFile });
+    await storeBanner(id, swFiles);
+
+    let html = await htmlFile.text();
+    html = html.split("https://s0.2mdn.net/ads/studio/Enabler.js").join("data:text/javascript,");
+    html = html.split("http://s0.2mdn.net/ads/studio/Enabler.js").join("data:text/javascript,");
+    if (/<head[^>]*>/i.test(html)) html = html.replace(/<head[^>]*>/i, (m) => m + ENABLER_STUB_03);
+    else html = ENABLER_STUB_03 + html;
+
+    const patchedFile = new File([new Blob([html], { type: "text/html" })], "index.html", { type: "text/html" });
+    await storeBanner(id, [{ path: "index.html", file: patchedFile }, ...swFiles.filter(f => f.path !== "index.html")]);
+
+    let w = 0, h = 0;
+    const meta = html.match(/width\s*=\s*(\d+)\s*,\s*height\s*=\s*(\d+)/i);
+    if (meta) { w = +meta[1]; h = +meta[2]; }
+    const folderName = bannerRoot.split("/").pop() || htmlFile.name;
+    const m = folderName.match(/(\d{2,4})\s*[xX×]\s*(\d{2,4})/);
+    const W = m ? +m[1] : (w || 300), H = m ? +m[2] : (h || 250);
+
+    return { id: `up-${++_uid}`, name: folderName, dim: `${W}×${H}`, ar: W / H, imageUrl: `/banner-preview/${id}/index.html`, fileType: "htmlbanner" as any, fileName: htmlFile.name };
+  } catch { return null; }
+}
 
 // ─── Font Picker ───────────────────────────────────────────────────────────────
 
@@ -376,52 +459,20 @@ function CoverPreviewCard({
 
 // ─── Sidebar (shared) ──────────────────────────────────────────────────────────
 
-function Sidebar({ onDashboard, onCampaigns }: { onDashboard: () => void; onCampaigns: () => void }) {
-  return (
-    <div className="w-56 border-r border-gray-100 flex flex-col py-5 px-3 shrink-0">
-      <div className="flex items-center gap-2 px-2 mb-7">
-        <div className="w-6 h-6 rounded-md bg-gray-900 flex items-center justify-center shrink-0">
-          <svg width="13" height="11" viewBox="0 0 12.9104 10.3283" fill="none">
-            <path d="M12.799 0.211896V8.32163H6.49027V6.51912H10.9965V2.0144H1.98553V0.211896H12.799Z" fill="white" />
-            <path d="M6.49032 8.32165V10.1241H0.183076V2.0144H1.98558V8.32165H6.49032Z" fill="white" />
-          </svg>
-        </div>
-        <span className="text-gray-900 text-sm font-semibold tracking-tight">PreviewStudio</span>
-      </div>
-      <nav className="flex-1 space-y-0.5">
-        <button onClick={onDashboard} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer text-left text-[13px] text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-all duration-100">
-          <LayoutGrid size={14} />Dashboard
-        </button>
-        <button onClick={onCampaigns} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer text-left text-[13px] bg-gray-100 text-gray-900 font-medium">
-          <Folder size={14} />Campaigns
-        </button>
-      </nav>
-      <div className="space-y-0.5 pt-4 border-t border-gray-100">
-        {[
-          { icon: Settings, label: "Settings", action: () => toast.info("Settings coming soon") },
-          { icon: HelpCircle, label: "Help",     action: () => toast.info("Help center coming soon") },
-        ].map(({ icon: Icon, label, action }) => (
-          <button key={label} onClick={action} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 cursor-pointer text-[13px] transition-all duration-100">
-            <Icon size={14} />{label}
-          </button>
-        ))}
-        <div className="flex items-center gap-2.5 px-3 py-2 mt-1">
-          <div className="w-6 h-6 rounded-full bg-[#6715af] flex items-center justify-center shrink-0">
-            <span className="text-white text-[9px] font-bold">FC</span>
-          </div>
-          <div>
-            <p className="text-gray-700 text-[12px] font-medium leading-tight">Fabian Caamaño</p>
-            <p className="text-gray-400 text-[11px]">Designer</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+const ACCENT = "#2c6bf2";
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 
-export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, campaign, onUpdate }: Props) {
+export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, campaign, onUpdate, dark = false, setDark = () => {} }: Props) {
+  const T = {
+    page: dark ? "#0e0e12" : "#ffffff",
+    surface: dark ? "#1d1d23" : "#ffffff",
+    border: dark ? "#2c2c34" : "#f0f0f2",
+    text: dark ? "#f4f5f7" : "#111827",
+    sub: dark ? "#9aa3b2" : "#9ca3af",
+    hover: dark ? "#26262e" : "#f9fafb",
+    inputBg: dark ? "#26262e" : "#f9fafb",
+  };
   const [step, setStep] = useState(1);
   const [direction, setDirection] = useState(1);
   const [uploadDragging, setUploadDragging] = useState(false);
@@ -543,48 +594,108 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
     newPlatforms.forEach((p) => (PLATFORM_FORMAT_MAP[p] ?? []).forEach((f) => autoFormats.add(f)));
     onUpdate({ selectedFormats: [...autoFormats] });
   };
-  const isMediaFile = (file: File) =>
-    file.type.startsWith("image/") || file.type.startsWith("video/") ||
-    /\.(jpe?g|png|gif|webp|avif|svg|mp4|webm|mov|avi)$/i.test(file.name);
-  const processFileEntries = async (entries: { file: File; pathParts: string[] }[]) => {
-    const images = entries.filter(({ file }) => isMediaFile(file));
-    if (!images.length) return;
+  useEffect(() => { registerBannerSW().catch(() => {}); }, []);
+
+  const processFiles = async (files: File[]) => {
+    if (!files.length) return;
     setDetecting(true);
-    await new Promise((r) => setTimeout(r, 850));
-    applyGrouped(buildGrouped(images));
+    const all = files.filter(f => !/^\./.test(f.name)); // skip hidden/system files
+
+    // ── Group HTML5 banners by the folder containing each HTML file ──
+    const htmlFiles = all.filter(f => /\.html?$/i.test(f.name));
+    const htmlByDir = new Map<string, File>();
+    for (const f of htmlFiles) {
+      const rel = (f as any).webkitRelativePath as string ?? f.name;
+      const parts = rel.split("/");
+      const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+      if (!htmlByDir.has(dir) || f.name.toLowerCase() === "index.html") {
+        htmlByDir.set(dir, f);
+      }
+    }
+
+    const consumed = new Set<File>();
+    const extraPieces: { piece: UploadedPiece; pathParts: string[] }[] = [];
+
+    // HTML5 banners
+    for (const [bannerDir, htmlFile] of htmlByDir) {
+      const groupFiles = bannerDir
+        ? all.filter(f => {
+            const rel = (f as any).webkitRelativePath as string | undefined;
+            return rel && (rel === `${bannerDir}/${htmlFile.name}` || rel.startsWith(`${bannerDir}/`));
+          })
+        : [htmlFile];
+      if (!groupFiles.length) continue;
+      const piece = await buildHtmlBannerPiece(htmlFile, groupFiles, bannerDir);
+      if (piece) {
+        groupFiles.forEach(f => consumed.add(f));
+        const relPath = (htmlFile as any).webkitRelativePath as string || "";
+        const pathParts = relPath ? relPath.split("/").slice(0, -1) : [];
+        extraPieces.push({ piece, pathParts });
+      }
+    }
+
+    // PSD files
+    const psdFiles = all.filter(f => /\.psd$/i.test(f.name) && !consumed.has(f));
+    for (const f of psdFiles) {
+      consumed.add(f);
+      try {
+        const pieces = await extractPsdArtboards(f);
+        const relPath = (f as any).webkitRelativePath as string || "";
+        const pathParts = relPath ? relPath.split("/").slice(0, -1) : [];
+        pieces.forEach(p => extraPieces.push({ piece: p, pathParts }));
+      } catch { /* skip */ }
+    }
+
+    // Regular media files
+    const mediaFiles = all.filter(f =>
+      !consumed.has(f) &&
+      (f.type.startsWith("image/") || f.type.startsWith("video/") || /\.(jpe?g|png|gif|webp|mp4|webm|mov)$/i.test(f.name))
+    );
+    const mediaEntries = mediaFiles.map(file => {
+      const relPath = (file as any).webkitRelativePath as string || "";
+      return { file, pathParts: relPath ? relPath.split("/").slice(0, -1) : [] };
+    });
+
+    const grouped = buildGrouped(mediaEntries);
+
+    // Inject HTML5 banners and PSD artboards into grouped structure
+    for (const { piece, pathParts } of extraPieces) {
+      let channelIdx = -1;
+      for (let i = pathParts.length - 1; i >= 0; i--) { if (detectPlatform(pathParts[i])) { channelIdx = i; break; } }
+      const platform = channelIdx >= 0 ? detectPlatform(pathParts[channelIdx])! : (detectPlatform(piece.name) ?? "HTML5");
+      const subCampaign = channelIdx > 0 ? pathParts[channelIdx - 1] : "";
+      grouped[subCampaign] = grouped[subCampaign] ?? {};
+      grouped[subCampaign][platform] = grouped[subCampaign][platform] ?? [];
+      grouped[subCampaign][platform].push(piece);
+    }
+
+    await new Promise(r => setTimeout(r, 400));
+    applyGrouped(grouped);
   };
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     dragCounter.current = 0;
     setUploadDragging(false);
     const items = Array.from(e.dataTransfer.items);
-    const fsEntries = items.map((item) => item.webkitGetAsEntry?.()).filter((entry): entry is FileSystemEntry => !!entry);
+    const fsEntries = items.map(item => item.webkitGetAsEntry?.()).filter((entry): entry is FileSystemEntry => !!entry);
     if (fsEntries.length > 0) {
       setDetecting(true);
-      const t0 = Date.now();
-      const results = await Promise.all(fsEntries.map((entry) => traverseFSEntry(entry)));
-      const allEntries = results.flat();
-      const delay = Math.max(0, 850 - (Date.now() - t0));
-      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
-      applyGrouped(buildGrouped(allEntries.filter(({ file }) => isMediaFile(file))));
+      const results = await Promise.all(fsEntries.map(entry => traverseFSEntry(entry)));
+      await processFiles(results.flat().map(e => e.file));
     } else {
-      processFileEntries(Array.from(e.dataTransfer.files).map((f) => ({ file: f, pathParts: [] })));
+      await processFiles(Array.from(e.dataTransfer.files));
     }
   };
-  const handleFolderInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFolderInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!files.length) return;
-    processFileEntries(files.map((file) => {
-      const relPath = file.webkitRelativePath ?? "";
-      return { file, pathParts: relPath ? relPath.split("/").slice(0, -1) : [] };
-    }));
+    await processFiles(files);
   };
-  const handleBannerInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBannerInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!files.length) return;
-    processFileEntries(files.map((f) => ({ file: f, pathParts: [] })));
+    await processFiles(files);
   };
   const handleDragEnter = (e: React.DragEvent) => { e.preventDefault(); dragCounter.current++; if (dragCounter.current === 1) setUploadDragging(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); dragCounter.current--; if (dragCounter.current === 0) setUploadDragging(false); };
@@ -624,9 +735,9 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }} className="mb-8">
         <div className="flex items-center gap-2 mb-3">
           <Zap size={11} className="text-gray-400" />
-          <span className="text-gray-400 font-semibold uppercase tracking-wider" style={{ fontSize: "10px" }}>Detected sections</span>
+          <span className="text-gray-400 font-semibold uppercase tracking-wider" style={{ fontSize: "10px" }}>Secciones detectadas</span>
           <span className="bg-gray-100 text-gray-500 rounded-md px-1.5 py-0.5 font-semibold" style={{ fontSize: "10px" }}>
-            {totalPieces} files · {hasSubCampaigns ? `${subCampaignCount} sub-campaign${subCampaignCount !== 1 ? "s" : ""}` : `${allPlatforms.length} platform${allPlatforms.length !== 1 ? "s" : ""}`}
+            {totalPieces} archivos · {hasSubCampaigns ? `${subCampaignCount} sub-campaña${subCampaignCount !== 1 ? "s" : ""}` : `${allPlatforms.length} plataforma${allPlatforms.length !== 1 ? "s" : ""}`}
           </span>
         </div>
         <div className="space-y-3">
@@ -689,38 +800,41 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen w-full bg-white overflow-hidden">
-      <Sidebar onDashboard={onGoToDashboard} onCampaigns={onBack} />
+    <div className="flex h-screen w-full overflow-hidden" style={{ background: T.surface }}>
+      <Sidebar active="campaigns" dark={dark} setDark={setDark} />
 
       <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* ── Top bar / Breadcrumb ── */}
-        <div className="flex items-center gap-2 px-8 py-4 border-b border-gray-100">
-          <button onClick={onGoToDashboard} className="text-gray-400 hover:text-gray-700 text-[13px] cursor-pointer transition-colors duration-100">Dashboard</button>
-          <ChevronRight size={12} className="text-gray-300" />
-          <button onClick={onBack} className="text-gray-400 hover:text-gray-700 text-[13px] cursor-pointer transition-colors duration-100">Campaigns</button>
-          <ChevronRight size={12} className="text-gray-300" />
-          <span className="text-gray-700 text-[13px] font-medium truncate max-w-[200px]">
-            {campaign.campaignName || "Untitled Campaign"}
+        <div className="flex items-center gap-2 px-8 py-4 border-b" style={{ borderColor: T.border, background: T.page }}>
+          <button onClick={onGoToDashboard} className="text-[13px] cursor-pointer transition-colors duration-100" style={{ color: T.sub }}>Dashboard</button>
+          <ChevronRight size={12} style={{ color: T.sub, opacity: 0.6 }} />
+          <button onClick={onBack} className="text-[13px] cursor-pointer transition-colors duration-100" style={{ color: T.sub }}>Campañas</button>
+          <ChevronRight size={12} style={{ color: T.sub, opacity: 0.6 }} />
+          <span className="text-[13px] font-medium truncate max-w-[200px]" style={{ color: T.text }}>
+            {campaign.campaignName || "Campaña sin título"}
           </span>
           {step === 2 && (
             <>
-              <ChevronRight size={12} className="text-gray-300" />
-              <span className="text-gray-500 text-[13px]">Assets & Formats</span>
+              <ChevronRight size={12} style={{ color: T.sub, opacity: 0.6 }} />
+              <span className="text-[13px]" style={{ color: T.sub }}>Assets y Formatos</span>
             </>
           )}
           <div className="ml-auto">
             <button
-              onClick={() => toast.info("Campaign archived")}
-              className="text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer text-[13px] transition-all duration-100"
+              onClick={() => toast.info("Campaña archivada")}
+              className="px-3 py-1.5 rounded-lg cursor-pointer text-[13px] transition-all duration-100"
+              style={{ color: T.sub }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = T.hover)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
-              Archive
+              Archivar
             </button>
           </div>
         </div>
 
         {/* ── Stepper ── */}
-        <div className="flex items-center gap-0 px-8 py-3.5 border-b border-gray-100">
+        <div className="flex items-center gap-0 px-8 py-3.5 border-b" style={{ borderColor: T.border, background: T.page }}>
           {STEP_LABELS.map((label, i) => {
             const n = i + 1;
             const done = n < step;
@@ -731,15 +845,15 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                   onClick={() => goStep(n)}
                   className="flex items-center gap-2 cursor-pointer group"
                 >
-                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors duration-200 ${done || active ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-400 group-hover:bg-gray-200"}`}>
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors duration-200" style={done || active ? { background: ACCENT, color: "#fff" } : { background: T.hover, color: T.sub }}>
                     {done ? "✓" : n}
                   </div>
-                  <span className={`text-[12px] transition-colors duration-200 ${active ? "text-gray-900 font-semibold" : "text-gray-400 group-hover:text-gray-600"}`}>{label}</span>
+                  <span className="text-[12px] transition-colors duration-200" style={active ? { color: T.text, fontWeight: 600 } : { color: T.sub }}>{label}</span>
                 </button>
                 {i < STEP_LABELS.length - 1 && (
                   <div className="mx-4 flex items-center gap-0.5">
                     {Array.from({ length: 12 }).map((_, k) => (
-                      <div key={k} className={`w-1 h-px rounded-full transition-colors duration-300 ${k < (done ? 12 : 0) ? "bg-gray-900" : "bg-gray-200"}`} />
+                      <div key={k} className="w-1 h-px rounded-full transition-colors duration-300" style={{ background: k < (done ? 12 : 0) ? ACCENT : T.border }} />
                     ))}
                   </div>
                 )}
@@ -759,233 +873,164 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
               transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
               className="absolute inset-0 overflow-y-auto px-8 py-6"
             >
-              <div className="flex gap-8">
+              <div className="flex gap-8 max-w-5xl">
 
                 {/* ── LEFT PANEL ── */}
-                <div className="flex-1 max-w-xl">
+                <div className="flex-1 min-w-0">
 
                   {/* ═══ STEP 1: Campaign Details ═══ */}
                   {step === 1 && (
                     <>
-                      {/* Section header */}
-                      <div className="mb-8">
-                        <p className="text-gray-400 text-[11px] font-semibold uppercase tracking-widest mb-1">Step 1</p>
-                        <h2 className="text-gray-900 text-xl font-semibold tracking-tight">Campaign Details</h2>
+                      <div className="mb-7">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: T.sub }}>Paso 1</p>
+                        <h2 className="text-[22px] font-semibold tracking-tight" style={{ color: T.text }}>Detalles de campaña</h2>
                       </div>
 
-                      {/* ── Include Cover toggle ── */}
-                      <div className="flex items-center justify-between mb-6 pb-5 border-b border-gray-100">
-                        <div>
-                          <p className="text-gray-800 text-[13px] font-semibold">Include cover page</p>
-                          <p className="text-gray-400 text-[12px] mt-0.5">Add a branded cover slide to the preview</p>
-                        </div>
-                        <button
-                          onClick={() => { onUpdate({ includeCover: !campaign.includeCover }); nudge(); }}
-                          className={`relative w-9 h-5 rounded-full transition-colors duration-200 cursor-pointer shrink-0 ${campaign.includeCover ? "bg-gray-900" : "bg-gray-200"}`}
-                        >
-                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${campaign.includeCover ? "translate-x-4" : "translate-x-0.5"}`} />
-                        </button>
-                      </div>
-
-                      {/* ── Cover Template (hidden when toggle OFF) ── */}
-                      <AnimatePresence>
-                        {campaign.includeCover && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.22 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="mb-6 pb-5 border-b border-gray-100">
-                              <p className="text-gray-700 text-[13px] font-semibold mb-3">Cover Template</p>
-                              <div className="grid grid-cols-3 gap-2.5">
-                                {COVER_TEMPLATES.map((t) => (
-                                  <button
-                                    key={t.id}
-                                    onClick={() => selectTemplate(t.id)}
-                                    className="flex flex-col items-center gap-1.5 cursor-pointer group"
-                                  >
-                                    <div className={`w-full h-16 rounded-xl border-2 overflow-hidden transition-all duration-100 ${campaign.coverTemplate === t.id ? "border-gray-900 shadow-sm ring-1 ring-gray-900/10" : "border-gray-200 hover:border-gray-300"}`}>
-                                      {t.preview}
-                                    </div>
-                                    <span className={`text-[11px] transition-colors ${campaign.coverTemplate === t.id ? "text-gray-900 font-semibold" : "text-gray-400"}`}>
-                                      {t.label}
-                                    </span>
-                                  </button>
-                                ))}
-                              </div>
-
-                              {/* Custom background picker */}
-                              <AnimatePresence>
-                                {campaign.coverTemplate === "custom" && (
-                                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.16 }} className="mt-3 flex items-center gap-3">
-                                    <span className="text-gray-400 text-[12px] w-24 shrink-0">Background</span>
-                                    <div className="flex items-center gap-1.5">
-                                      {CUSTOM_BG_OPTIONS.map((bg) => (
-                                        <button
-                                          key={bg.id}
-                                          onClick={() => { onUpdate({ selectedBg: bg.id }); nudge(); }}
-                                          title={bg.label}
-                                          className={`w-6 h-6 rounded-full border-2 cursor-pointer transition-all duration-100 ${bg.cls} ${campaign.selectedBg === bg.id ? "ring-2 ring-offset-1 ring-gray-400" : ""}`}
-                                        />
-                                      ))}
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-
-                      {/* ── Cover Details (always visible) ── */}
-                      <div className="mb-6 pb-5 border-b border-gray-100">
-                        <p className="text-gray-700 text-[13px] font-semibold mb-3">Cover Details</p>
+                      {/* ── Información general ── */}
+                      <div className="mb-6 pb-6 border-b" style={{ borderColor: T.border }}>
+                        <p className="text-[11px] font-semibold uppercase tracking-widest mb-4" style={{ color: T.sub }}>Información</p>
                         <div className="space-y-3">
                           {[
-                            { label: "Campaign title",  key: "campaignName" as const, type: "text", placeholder: "e.g. Summer Sale 2026" },
-                            { label: "Client name",     key: "clientName"   as const, type: "text", placeholder: "e.g. Acme Corp" },
-                            { label: "Shipping date",   key: "shippingDate" as const, type: "date", placeholder: "" },
-                            { label: "Review round",    key: "reviewRound"  as const, type: "text", placeholder: "e.g. Round 1" },
+                            { label: "Nombre de campaña", key: "campaignName" as const, type: "text", placeholder: "ej. Venta de Verano 2026" },
+                            { label: "Cliente / Marca",   key: "clientName"   as const, type: "text", placeholder: "ej. Éxito" },
+                            { label: "Fecha de entrega",  key: "shippingDate" as const, type: "date", placeholder: "" },
+                            { label: "Ronda de revisión", key: "reviewRound"  as const, type: "text", placeholder: "ej. Ronda 1" },
                           ].map(({ label, key, type, placeholder }) => (
                             <div key={label} className="flex items-center gap-4">
-                              <span className="text-gray-400 text-[12px] w-28 shrink-0">{label}</span>
+                              <span className="text-[12px] w-36 shrink-0" style={{ color: T.sub }}>{label}</span>
                               <input
                                 type={type}
                                 value={campaign[key]}
                                 placeholder={placeholder}
                                 onChange={(e) => { onUpdate({ [key]: e.target.value }); nudge(); }}
-                                className="flex-1 bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5 text-gray-800 text-[13px] placeholder-gray-300 outline-none focus:border-gray-300 focus:bg-white transition-colors"
+                                className="flex-1 rounded-lg px-3 py-1.5 text-[13px] placeholder-gray-300 outline-none transition-colors"
+                                style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
                               />
                             </div>
                           ))}
                         </div>
                       </div>
 
-                      {/* ── Assets & Brand (unified, always visible) ── */}
+                      {/* ── Portada ── */}
+                      <div className="mb-6 pb-6 border-b" style={{ borderColor: T.border }}>
+                        <div className="flex items-center justify-between mb-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: T.sub }}>Portada del preview</p>
+                          <button
+                            onClick={() => { onUpdate({ includeCover: !campaign.includeCover }); nudge(); }}
+                            className="relative w-11 h-6 rounded-full transition-colors duration-200 cursor-pointer shrink-0"
+                            style={{ background: campaign.includeCover ? ACCENT : (dark ? "#3a3a44" : "#d1d5db") }}
+                          >
+                            <span className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-200 ${campaign.includeCover ? "translate-x-5" : "translate-x-0"}`} />
+                          </button>
+                        </div>
+
+                        <AnimatePresence>
+                          {campaign.includeCover && (
+                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                              {/* Template selector */}
+                              <div className="grid grid-cols-3 gap-3 mb-4">
+                                {COVER_TEMPLATES.map((t) => (
+                                  <button key={t.id} onClick={() => selectTemplate(t.id)} className="flex flex-col gap-2 cursor-pointer group text-left">
+                                    <div className="w-full rounded-xl overflow-hidden transition-all duration-150"
+                                      style={{ height: 80, border: campaign.coverTemplate === t.id ? `2px solid ${ACCENT}` : `1px solid ${T.border}`, boxShadow: campaign.coverTemplate === t.id ? `0 0 0 3px rgba(44,107,242,0.15)` : "none" }}>
+                                      {t.preview}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 px-0.5">
+                                      <div className="w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors"
+                                        style={{ borderColor: campaign.coverTemplate === t.id ? ACCENT : T.border, background: campaign.coverTemplate === t.id ? ACCENT : "transparent" }}>
+                                        {campaign.coverTemplate === t.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                      </div>
+                                      <span className="text-[12px] font-medium" style={{ color: campaign.coverTemplate === t.id ? T.text : T.sub }}>{t.label}</span>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+
+                              {/* Custom bg swatches */}
+                              <AnimatePresence>
+                                {campaign.coverTemplate === "custom" && (
+                                  <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.14 }} className="flex items-center gap-3 mb-4">
+                                    <span className="text-[12px] w-36 shrink-0" style={{ color: T.sub }}>Color de fondo</span>
+                                    <div className="flex items-center gap-2">
+                                      {CUSTOM_BG_OPTIONS.map((bg) => (
+                                        <button key={bg.id} onClick={() => { onUpdate({ selectedBg: bg.id }); nudge(); }} title={bg.label}
+                                          className={`w-6 h-6 rounded-full border-2 cursor-pointer transition-all duration-100 ${bg.cls} ${campaign.selectedBg === bg.id ? "ring-2 ring-offset-1 ring-blue-400" : ""}`} />
+                                      ))}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+
+                              {/* Logo + Hero */}
+                              <div className="space-y-3">
+                                <div className="flex items-center gap-4">
+                                  <span className="text-[12px] w-36 shrink-0" style={{ color: T.sub }}>Logo</span>
+                                  <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
+                                  {campaign.logoUrl ? (
+                                    <div className="flex items-center gap-2.5">
+                                      <div className="w-9 h-9 rounded-lg border overflow-hidden shrink-0 flex items-center justify-center" style={{ borderColor: T.border, background: T.inputBg }}>
+                                        <img src={campaign.logoUrl} alt="logo" className="w-full h-full object-contain" />
+                                      </div>
+                                      <span className="text-[12px] font-medium max-w-[100px] truncate" style={{ color: T.text }}>{campaign.logoName}</span>
+                                      <button onClick={removeLogo} className="text-[11px] cursor-pointer transition-colors" style={{ color: T.sub }}>Quitar</button>
+                                    </div>
+                                  ) : (
+                                    <button onClick={() => logoRef.current?.click()} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 cursor-pointer transition-colors" style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.sub }}>
+                                      <Upload size={11} /><span className="text-[12px]">Subir logo</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <span className="text-[12px] w-36 shrink-0" style={{ color: T.sub }}>Imagen de portada</span>
+                                  <input ref={heroRef} type="file" accept="image/*" className="hidden" onChange={handleHeroChange} />
+                                  {campaign.heroUrl ? (
+                                    <div className="flex items-center gap-2.5">
+                                      <div className="w-14 h-9 rounded-lg border overflow-hidden shrink-0" style={{ borderColor: T.border }}>
+                                        <img src={campaign.heroUrl} alt="hero" className="w-full h-full object-cover" />
+                                      </div>
+                                      <span className="text-[12px] font-medium max-w-[100px] truncate" style={{ color: T.text }}>{campaign.heroName}</span>
+                                      <button onClick={removeHero} className="text-[11px] cursor-pointer transition-colors" style={{ color: T.sub }}>Quitar</button>
+                                    </div>
+                                  ) : (
+                                    <button onClick={() => heroRef.current?.click()} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 cursor-pointer transition-colors" style={{ background: T.inputBg, border: `1px solid ${T.border}`, color: T.sub }}>
+                                      <Upload size={11} /><span className="text-[12px]">Subir imagen</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      {/* ── Identidad de marca ── */}
                       <div className="mb-6">
-                        <p className="text-gray-700 text-[13px] font-semibold mb-3">Assets & Brand</p>
-                        <div className="space-y-4">
-
-                          {/* Logo */}
-                          <div className="flex items-start gap-3">
-                            <span className="text-gray-400 text-[12px] w-28 shrink-0 pt-1">Logo</span>
-                            <input ref={logoRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
-                            {campaign.logoUrl ? (
-                              <div className="flex items-center gap-2.5">
-                                <div className="w-10 h-10 rounded-lg border border-gray-100 bg-gray-50 overflow-hidden shrink-0 flex items-center justify-center">
-                                  <img src={campaign.logoUrl} alt="logo" className="w-full h-full object-contain" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                  <span className="text-gray-700 text-[12px] font-medium leading-tight max-w-[120px] truncate">{campaign.logoName}</span>
-                                  <div className="flex items-center gap-2">
-                                    <button onClick={() => logoRef.current?.click()} className="text-gray-400 hover:text-gray-700 text-[11px] cursor-pointer transition-colors">Replace</button>
-                                    <span className="text-gray-200 text-[10px]">·</span>
-                                    <button onClick={removeLogo} className="text-gray-400 hover:text-red-500 text-[11px] cursor-pointer transition-colors">Remove</button>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <button onClick={() => logoRef.current?.click()} className="flex items-center gap-2 bg-gray-50 border border-gray-100 hover:border-gray-300 rounded-lg px-3 py-1.5 cursor-pointer transition-colors">
-                                <Upload size={12} className="text-gray-400" />
-                                <span className="text-[12px] text-gray-500">Upload logo</span>
-                              </button>
-                            )}
+                        <p className="text-[11px] font-semibold uppercase tracking-widest mb-4" style={{ color: T.sub }}>Identidad de marca</p>
+                        <div className="space-y-3">
+                          <div className="flex items-start gap-4">
+                            <span className="text-[12px] w-36 shrink-0 pt-1" style={{ color: T.sub }}>Fuente</span>
+                            <FontPicker value={campaign.brandFont} onChange={(f) => { onUpdate({ brandFont: f }); nudge(); }} />
                           </div>
-
-                          {/* Cover Background / Hero Image */}
-                          <div className="flex items-start gap-3">
-                            <span className="text-gray-400 text-[12px] w-28 shrink-0 pt-1">Cover image</span>
-                            <input ref={heroRef} type="file" accept="image/*" className="hidden" onChange={handleHeroChange} />
-                            {campaign.heroUrl ? (
-                              <div className="flex items-center gap-2.5">
-                                <div className="w-16 h-10 rounded-lg border border-gray-100 bg-gray-50 overflow-hidden shrink-0">
-                                  <img src={campaign.heroUrl} alt="hero" className="w-full h-full object-cover" />
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                  <span className="text-gray-700 text-[12px] font-medium leading-tight max-w-[120px] truncate">{campaign.heroName}</span>
-                                  <div className="flex items-center gap-2">
-                                    <button onClick={() => heroRef.current?.click()} className="text-gray-400 hover:text-gray-700 text-[11px] cursor-pointer transition-colors">Replace</button>
-                                    <span className="text-gray-200 text-[10px]">·</span>
-                                    <button onClick={removeHero} className="text-gray-400 hover:text-red-500 text-[11px] cursor-pointer transition-colors">Remove</button>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <button onClick={() => heroRef.current?.click()} className="flex items-center gap-2 bg-gray-50 border border-gray-100 hover:border-gray-300 rounded-lg px-3 py-1.5 cursor-pointer transition-colors">
-                                <Upload size={12} className="text-gray-400" />
-                                <span className="text-[12px] text-gray-500">Upload image</span>
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Brand Font */}
-                          <div className="flex items-start gap-3">
-                            <span className="text-gray-400 text-[12px] w-28 shrink-0 pt-1">Brand font</span>
-                            <FontPicker
-                              value={campaign.brandFont}
-                              onChange={(f) => { onUpdate({ brandFont: f }); nudge(); }}
-                            />
-                          </div>
-
-                          {/* Brand Colors */}
-                          <div className="flex items-start gap-3">
-                            <span className="text-gray-400 text-[12px] w-28 shrink-0 pt-1.5">Brand colors</span>
+                          <div className="flex items-start gap-4">
+                            <span className="text-[12px] w-36 shrink-0 pt-1.5" style={{ color: T.sub }}>Colores</span>
                             <div className="flex flex-col gap-2">
-                              <input
-                                ref={colorRef}
-                                type="color"
-                                className="sr-only"
-                                onChange={(e) => addColor(e.target.value)}
-                              />
+                              <input ref={colorRef} type="color" className="sr-only" onChange={(e) => addColor(e.target.value)} />
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 {brandColors.map((c) => (
                                   <div key={c} className="relative group">
-                                    <div
-                                      className="w-6 h-6 rounded-full border border-black/10 cursor-pointer shrink-0"
-                                      style={{ background: c }}
-                                    />
-                                    <button
-                                      onClick={() => removeColor(c)}
-                                      className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-white border border-gray-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow-sm"
-                                    >
+                                    <div className="w-6 h-6 rounded-full border border-black/10 cursor-pointer" style={{ background: c }} />
+                                    <button onClick={() => removeColor(c)} className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-white border border-gray-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow-sm">
                                       <X size={7} className="text-gray-600" />
                                     </button>
                                   </div>
                                 ))}
-                                <button
-                                  onClick={() => colorRef.current?.click()}
-                                  className="w-6 h-6 rounded-full border border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-gray-400 transition-colors shrink-0"
-                                  title="Add color"
-                                >
-                                  <Plus size={10} className="text-gray-400" />
+                                <button onClick={() => colorRef.current?.click()} className="w-6 h-6 rounded-full border border-dashed flex items-center justify-center cursor-pointer transition-colors shrink-0" style={{ borderColor: T.sub }}>
+                                  <Plus size={10} style={{ color: T.sub }} />
                                 </button>
                               </div>
-                              {brandColors.length === 0 && (
-                                <p className="text-gray-300 text-[11px]">No colors added yet</p>
-                              )}
+                              {brandColors.length === 0 && <p className="text-[11px]" style={{ color: T.sub, opacity: 0.6 }}>Sin colores aún</p>}
                             </div>
                           </div>
-
-                          {/* Background (read-only, derived from template) */}
-                          <div className="flex items-center gap-3">
-                            <span className="text-gray-400 text-[12px] w-28 shrink-0">Background</span>
-                            {campaign.coverTemplate !== "custom" ? (
-                              <div className="flex items-center gap-2">
-                                <div
-                                  className="w-6 h-6 rounded-full border border-black/10 shrink-0"
-                                  style={{ background: currentTemplate.bg ?? "#FFFFFF" }}
-                                />
-                                <span className="text-gray-500 text-[12px]">
-                                  {currentTemplate.label} — from template
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-gray-400 text-[12px]">Chosen above</span>
-                            )}
-                          </div>
-
                         </div>
                       </div>
 
@@ -1000,18 +1045,19 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                             className="mt-2 mb-4"
                           >
                             <div className="flex items-center justify-between mb-1.5">
-                              <p className="text-gray-400 text-[12px]">Continuing to Assets & Formats…</p>
+                              <p className="text-[12px]" style={{ color: T.sub }}>Continuando a Assets y Formatos…</p>
                               <button
                                 onClick={() => { setLastInteraction(null); setAutoProgress(0); }}
-                                className="text-gray-300 hover:text-gray-500 text-[11px] cursor-pointer transition-colors"
+                                className="text-[11px] cursor-pointer transition-colors"
+                                style={{ color: T.sub }}
                               >
-                                Cancel
+                                Cancelar
                               </button>
                             </div>
-                            <div className="w-full h-0.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="w-full h-0.5 rounded-full overflow-hidden" style={{ background: T.border }}>
                               <motion.div
-                                className="h-full bg-gray-900 rounded-full"
-                                style={{ width: `${autoProgress * 100}%` }}
+                                className="h-full rounded-full"
+                                style={{ width: `${autoProgress * 100}%`, background: ACCENT }}
                               />
                             </div>
                           </motion.div>
@@ -1024,8 +1070,8 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                   {step === 2 && (
                     <>
                       <div className="mb-8">
-                        <p className="text-gray-400 text-[11px] font-semibold uppercase tracking-widest mb-1">Step 2</p>
-                        <h2 className="text-gray-900 text-xl font-semibold tracking-tight">Assets & Formats</h2>
+                        <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: T.sub }}>Paso 2</p>
+                        <h2 className="text-xl font-semibold tracking-tight" style={{ color: T.text }}>Assets y Formatos</h2>
                       </div>
 
                       <input ref={bannersRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={handleBannerInput} />
@@ -1034,46 +1080,47 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                       {/* 1. Campaign Name */}
                       <div className="mb-8">
                         <div className="flex items-center gap-2.5 mb-3">
-                          <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[10px] font-bold flex items-center justify-center shrink-0">1</span>
-                          <span className="text-gray-700 text-[13px] font-semibold">Campaign Name</span>
+                          <span className="w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center shrink-0" style={{ background: ACCENT }}>1</span>
+                          <span className="text-[13px] font-semibold" style={{ color: T.text }}>Nombre de campaña</span>
                         </div>
-                        <input value={campaign.campaignName} onChange={(e) => onUpdate({ campaignName: e.target.value })} className="w-full bg-transparent text-gray-900 outline-none border-b border-gray-100 pb-2 focus:border-gray-400 text-[22px] font-semibold tracking-tight transition-colors duration-150" />
+                        <input value={campaign.campaignName} onChange={(e) => onUpdate({ campaignName: e.target.value })} className="w-full bg-transparent outline-none border-b pb-2 text-[22px] font-semibold tracking-tight transition-colors duration-150" style={{ color: T.text, borderColor: T.border }} />
                       </div>
 
                       {/* 2. Upload banners */}
                       <div className="mb-6">
                         <div className="flex items-center gap-2.5 mb-3">
-                          <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[10px] font-bold flex items-center justify-center shrink-0">2</span>
-                          <span className="text-gray-700 text-[13px] font-semibold">Upload Banners</span>
-                          {hasUploads && <span className="ml-auto text-gray-400 text-[11px]">{totalPieces} file{totalPieces !== 1 ? "s" : ""} · {allPlatforms.length} platform{allPlatforms.length !== 1 ? "s" : ""}</span>}
+                          <span className="w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center shrink-0" style={{ background: ACCENT }}>2</span>
+                          <span className="text-[13px] font-semibold" style={{ color: T.text }}>Subir banners</span>
+                          {hasUploads && <span className="ml-auto text-[11px]" style={{ color: T.sub }}>{totalPieces} archivo{totalPieces !== 1 ? "s" : ""} · {allPlatforms.length} plataforma{allPlatforms.length !== 1 ? "s" : ""}</span>}
                         </div>
                         <div
                           onDragEnter={handleDragEnter}
                           onDragLeave={handleDragLeave}
                           onDragOver={(e) => e.preventDefault()}
                           onDrop={handleDrop}
-                          className={`border-2 border-dashed rounded-2xl transition-all duration-150 ${uploadDragging ? "border-gray-400 bg-gray-50" : "border-gray-200 hover:border-gray-300 hover:bg-gray-50/50"}`}
+                          className={`border-2 border-dashed rounded-2xl transition-all duration-150 ${uploadDragging ? "border-gray-500" : "hover:border-gray-500"}`}
+                          style={{ borderColor: uploadDragging ? (dark ? "#555" : "#9ca3af") : undefined, background: uploadDragging ? (dark ? "#2a2a32" : "#f3f4f6") : (dark ? "#1a1a22" : "#f9fafb") }}
                         >
                           <div className="p-7 flex flex-col items-center justify-center text-center">
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 transition-colors ${uploadDragging ? "bg-gray-200" : "bg-gray-100"}`}>
                               {uploadDragging ? <Folder size={16} className="text-gray-500" /> : <Upload size={16} className="text-gray-400" />}
                             </div>
-                            <p className="text-gray-700 text-[13px] font-medium mb-1">{uploadDragging ? "Release to detect" : hasUploads ? "Add more banners" : "Drop a folder or files here"}</p>
-                            <p className="text-gray-400 text-[12px] mb-5">{hasUploads ? "Platform detected from folder structure or filename" : "Folder structure auto-detected: Brand / Campaign / Sub-campaign / Channel"}</p>
+                            <p className="text-[13px] font-medium mb-1" style={{ color: T.text }}>{uploadDragging ? "Suelta para detectar" : hasUploads ? "Añadir más banners" : "Arrastra una carpeta o archivos aquí"}</p>
+                            <p className="text-[12px] mb-5" style={{ color: T.sub }}>{hasUploads ? "Plataforma detectada por estructura de carpetas o nombre" : "Estructura auto-detectada: Marca / Campaña / Sub-campaña / Canal"}</p>
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                              <button type="button" onClick={() => folderRef.current?.click()} className="flex items-center gap-1.5 bg-gray-900 text-white rounded-xl px-3 py-1.5 text-[12px] font-medium cursor-pointer hover:bg-gray-700 transition-colors duration-100">
-                                <Folder size={11} />Select folder
+                              <button type="button" onClick={() => folderRef.current?.click()} className="flex items-center gap-1.5 text-white rounded-xl px-3 py-1.5 text-[12px] font-medium cursor-pointer transition-colors duration-100 hover:brightness-110" style={{ background: ACCENT }}>
+                                <Folder size={11} />Seleccionar carpeta
                               </button>
-                              <span className="text-gray-300" style={{ fontSize: "11px" }}>or</span>
-                              <button type="button" onClick={() => bannersRef.current?.click()} className="text-gray-500 hover:text-gray-700 text-[12px] cursor-pointer transition-colors duration-100" style={{ textDecoration: "underline", textUnderlineOffset: "2px" }}>browse files</button>
+                              <span style={{ fontSize: "11px", color: T.sub }}>o</span>
+                              <button type="button" onClick={() => bannersRef.current?.click()} className="text-[12px] cursor-pointer transition-colors duration-100" style={{ textDecoration: "underline", textUnderlineOffset: "2px", color: T.sub }}>explorar archivos</button>
                             </div>
                           </div>
                         </div>
                         <AnimatePresence>
                           {detecting && (
-                            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }} className="mt-3 flex items-center gap-2.5 px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl">
-                              <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin shrink-0" />
-                              <span className="text-gray-600 text-[12px]">Analyzing folder structure…</span>
+                            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.2 }} className="mt-3 flex items-center gap-2.5 px-4 py-2.5 rounded-xl" style={{ background: T.inputBg, border: `1px solid ${T.border}` }}>
+                              <div className="w-3.5 h-3.5 rounded-full border-2 animate-spin shrink-0" style={{ borderColor: T.border, borderTopColor: ACCENT }} />
+                              <span className="text-[12px]" style={{ color: T.sub }}>Analizando estructura de carpetas…</span>
                             </motion.div>
                           )}
                         </AnimatePresence>
@@ -1084,13 +1131,20 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                       {/* 3. Formats */}
                       <div className="mb-8">
                         <div className="flex items-center gap-2.5 mb-3">
-                          <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[10px] font-bold flex items-center justify-center shrink-0">3</span>
-                          <span className="text-gray-700 text-[13px] font-semibold">Select Formats</span>
-                          {hasUploads && <span className="ml-auto text-gray-400 text-[11px]">Auto-selected from upload</span>}
+                          <span className="w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center shrink-0" style={{ background: ACCENT }}>3</span>
+                          <span className="text-[13px] font-semibold" style={{ color: T.text }}>Seleccionar formatos</span>
+                          {hasUploads && <span className="ml-auto text-[11px]" style={{ color: T.sub }}>Auto-seleccionado del upload</span>}
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {formats.map((f) => (
-                            <button key={f} onClick={() => toggleFormat(f)} className={`px-4 py-2 rounded-xl text-[13px] font-medium cursor-pointer transition-all duration-100 ${campaign.selectedFormats.includes(f) ? "bg-gray-900 text-white" : "bg-gray-50 border border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-100"}`}>
+                            <button key={f} onClick={() => toggleFormat(f)}
+                              className="px-4 py-2 rounded-xl text-[13px] font-medium cursor-pointer transition-all duration-100"
+                              style={campaign.selectedFormats.includes(f)
+                                ? { background: dark ? "#3a3a48" : "#111827", color: "#fff", border: `1px solid ${dark ? "#5a5a6e" : "#111827"}` }
+                                : { background: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}
+                              onMouseEnter={(e) => { if (!campaign.selectedFormats.includes(f)) (e.currentTarget as HTMLElement).style.background = dark ? "#2a2a34" : "#e9eaec"; }}
+                              onMouseLeave={(e) => { if (!campaign.selectedFormats.includes(f)) (e.currentTarget as HTMLElement).style.background = T.inputBg; }}
+                            >
                               {f}
                             </button>
                           ))}
@@ -1100,14 +1154,14 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                       {/* 4. Generate Preview */}
                       <div className="mb-8">
                         <div className="flex items-center gap-2.5 mb-4">
-                          <span className="w-5 h-5 rounded-full bg-gray-900 text-white text-[10px] font-bold flex items-center justify-center shrink-0">4</span>
-                          <span className="text-gray-700 text-[13px] font-semibold">Generate Preview</span>
+                          <span className="w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center shrink-0" style={{ background: ACCENT }}>4</span>
+                          <span className="text-[13px] font-semibold" style={{ color: T.text }}>Generar preview</span>
                         </div>
-                        <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} onClick={handleGeneratePreview} className="w-full bg-gray-900 text-white rounded-2xl py-4 text-[15px] font-semibold tracking-tight flex items-center justify-center gap-2.5 hover:bg-black transition-colors duration-150 cursor-pointer">
+                        <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} onClick={handleGeneratePreview} className="w-full text-white rounded-2xl py-4 text-[15px] font-semibold tracking-tight flex items-center justify-center gap-2.5 transition-colors duration-150 cursor-pointer hover:brightness-110" style={{ background: ACCENT }}>
                           <Zap size={16} />
-                          {hasUploads ? `Build deck — ${allPlatforms.length} channel${allPlatforms.length !== 1 ? "s" : ""}, ${totalPieces} banners` : "Generate Preview"}
+                          {hasUploads ? `Construir deck — ${allPlatforms.length} canal${allPlatforms.length !== 1 ? "es" : ""}, ${totalPieces} banners` : "Generar preview"}
                         </motion.button>
-                        {!hasUploads && <p className="text-center text-gray-400 text-[11px] mt-2">Upload banners to auto-build the slide deck</p>}
+                        {!hasUploads && <p className="text-center text-[11px] mt-2" style={{ color: T.sub }}>Sube banners para construir el deck automáticamente</p>}
                       </div>
                     </>
                   )}
@@ -1115,35 +1169,54 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                 </div>
 
                 {/* ── RIGHT PANEL ── */}
-                <div className="w-64 shrink-0">
+                <div className="w-72 shrink-0">
                   <motion.div initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1, duration: 0.35 }} className="space-y-4">
 
                     {step === 1 ? (
                       <>
                         {/* Live Cover Preview */}
-                        <div className="bg-gray-50 border border-gray-100 rounded-2xl overflow-hidden">
-                          <p className="text-gray-400 px-4 pt-4 pb-3" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Cover Preview</p>
+                        <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
+                          <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                            <p style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: T.sub }}>Vista previa</p>
+                            {campaign.includeCover && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ background: "rgba(44,107,242,0.12)", color: ACCENT }}>
+                                {COVER_TEMPLATES.find(t => t.id === campaign.coverTemplate)?.label ?? "Dark"}
+                              </span>
+                            )}
+                          </div>
                           <div className="px-4 pb-4">
-                            <CoverPreviewCard campaign={campaign} brandColors={brandColors} />
+                            {campaign.includeCover
+                              ? <CoverPreviewCard campaign={campaign} brandColors={brandColors} />
+                              : <div className="aspect-[16/9] rounded-xl flex items-center justify-center" style={{ background: T.inputBg, border: `1px dashed ${T.border}` }}>
+                                  <p className="text-[11px]" style={{ color: T.sub }}>Sin portada</p>
+                                </div>
+                            }
                           </div>
                         </div>
 
-                        {/* Summary */}
-                        <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4">
-                          <p className="text-gray-400 mb-3" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Summary</p>
-                          <div className="space-y-2">
+                        {/* Quick summary */}
+                        <div className="rounded-2xl p-4" style={{ background: T.inputBg, border: `1px solid ${T.border}` }}>
+                          <p className="mb-3" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: T.sub }}>Resumen</p>
+                          <div className="space-y-2.5">
                             {[
-                              { label: "Template",    value: COVER_TEMPLATES.find((t) => t.id === campaign.coverTemplate)?.label ?? "—" },
-                              { label: "Cover page",  value: campaign.includeCover ? "Included" : "Skipped" },
-                              { label: "Client",      value: campaign.clientName || "—" },
-                              { label: "Ship date",   value: campaign.shippingDate || "—" },
-                              { label: "Review",      value: campaign.reviewRound || "—" },
-                              { label: "Font",        value: campaign.brandFont || "System default" },
-                              { label: "Colors",      value: brandColors.length > 0 ? `${brandColors.length} added` : "None" },
+                              { label: "Campaña",  value: campaign.campaignName || "—" },
+                              { label: "Cliente",  value: campaign.clientName || "—" },
+                              { label: "Entrega",  value: campaign.shippingDate || "—" },
+                              { label: "Revisión", value: campaign.reviewRound || "—" },
+                              { label: "Fuente",   value: campaign.brandFont || "Por defecto" },
+                              { label: "Colores",  value: brandColors.length > 0 ? (
+                                <div className="flex items-center gap-1">
+                                  {brandColors.slice(0, 4).map(c => <div key={c} className="w-3.5 h-3.5 rounded-full border border-black/10 shrink-0" style={{ background: c }} />)}
+                                  {brandColors.length > 4 && <span style={{ fontSize: "10px", color: T.sub }}>+{brandColors.length - 4}</span>}
+                                </div>
+                              ) : "—" },
                             ].map(({ label, value }) => (
-                              <div key={label} className="flex items-center justify-between">
-                                <span className="text-gray-400" style={{ fontSize: "12px" }}>{label}</span>
-                                <span className="text-gray-700 text-right max-w-[120px] truncate" style={{ fontSize: "12px", fontWeight: 500 }}>{value}</span>
+                              <div key={label} className="flex items-center justify-between gap-2">
+                                <span style={{ fontSize: "12px", color: T.sub }}>{label}</span>
+                                {typeof value === "string"
+                                  ? <span className="text-right truncate max-w-[130px]" style={{ fontSize: "12px", fontWeight: 500, color: T.text }}>{value}</span>
+                                  : value
+                                }
                               </div>
                             ))}
                           </div>
@@ -1152,10 +1225,10 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                     ) : (
                       <>
                         {/* Auto-detected */}
-                        <div className="bg-gray-900 rounded-2xl p-4">
+                        <div className="rounded-2xl p-4" style={{ background: dark ? "#000" : "#111114" }}>
                           <div className="flex items-center gap-2 mb-3">
                             <Zap size={12} className="text-gray-300" />
-                            <span className="text-white font-semibold" style={{ fontSize: "12px" }}>Auto-detected</span>
+                            <span className="text-white font-semibold" style={{ fontSize: "12px" }}>Auto-detectado</span>
                           </div>
                           <AnimatePresence mode="wait">
                             {hasUploads ? (
@@ -1165,20 +1238,20 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                                     <div key={p} className="flex items-center gap-2">
                                       <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: PLATFORM_COLORS[p] ?? "#888" }} />
                                       <span className="text-gray-300" style={{ fontSize: "12px" }}>{p}</span>
-                                      <span className="text-gray-500 ml-auto" style={{ fontSize: "11px" }}>{Object.values(localGroups).reduce((s, g) => s + (g[p]?.length ?? 0), 0)} pcs</span>
+                                      <span className="text-gray-500 ml-auto" style={{ fontSize: "11px" }}>{Object.values(localGroups).reduce((s, g) => s + (g[p]?.length ?? 0), 0)} pzs</span>
                                     </div>
                                   ))}
                                 </div>
                                 <button onClick={handleGeneratePreview} className="w-full flex items-center justify-center gap-1 bg-white text-gray-900 rounded-xl py-2 cursor-pointer hover:bg-gray-100 transition-colors font-semibold" style={{ fontSize: "12px" }}>
-                                  Open in Builder <ChevronRight size={12} />
+                                  Abrir en Builder <ChevronRight size={12} />
                                 </button>
                               </motion.div>
                             ) : (
                               <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
-                                <p className="text-white font-medium mb-1" style={{ fontSize: "12px" }}>{detecting ? "Detecting…" : "Waiting for assets"}</p>
-                                <p className="text-gray-400" style={{ fontSize: "11px", lineHeight: "1.5" }}>Upload a folder to auto-detect channels and sub-campaigns.</p>
+                                <p className="text-white font-medium mb-1" style={{ fontSize: "12px" }}>{detecting ? "Detectando…" : "Esperando assets"}</p>
+                                <p className="text-gray-400" style={{ fontSize: "11px", lineHeight: "1.5" }}>Sube una carpeta para auto-detectar canales y sub-campañas.</p>
                                 <button disabled className="mt-3 w-full flex items-center justify-center gap-1 bg-gray-700 text-gray-500 rounded-xl py-2 cursor-not-allowed" style={{ fontSize: "12px" }}>
-                                  Open in Builder <ChevronRight size={12} />
+                                  Abrir en Builder <ChevronRight size={12} />
                                 </button>
                               </motion.div>
                             )}
@@ -1186,46 +1259,46 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
                         </div>
 
                         {/* Status */}
-                        <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4">
-                          <p className="text-gray-400 mb-3" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Status</p>
+                        <div className="rounded-2xl p-4" style={{ background: T.inputBg, border: `1px solid ${T.border}` }}>
+                          <p className="mb-3" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: T.sub }}>Estado</p>
                           <div className="space-y-2">
                             {[
-                              { label: "Banners",      value: hasUploads ? `${totalPieces} uploaded` : "None yet" },
-                              ...(subCampaignCount > 0 ? [{ label: "Sub-campaigns", value: String(subCampaignCount) }] : []),
-                              { label: "Channels",     value: hasUploads ? String(allPlatforms.length) : "—" },
-                              { label: "Formats",      value: String(campaign.selectedFormats.length) },
-                              { label: "Cover",        value: campaign.includeCover ? "Included" : "Skipped" },
-                              { label: "Owner",        value: "Fabian C." },
+                              { label: "Banners",       value: hasUploads ? `${totalPieces} subidos` : "Ninguno" },
+                              ...(subCampaignCount > 0 ? [{ label: "Sub-campañas", value: String(subCampaignCount) }] : []),
+                              { label: "Canales",       value: hasUploads ? String(allPlatforms.length) : "—" },
+                              { label: "Formatos",      value: String(campaign.selectedFormats.length) },
+                              { label: "Portada",       value: campaign.includeCover ? "Incluida" : "Omitida" },
+                              { label: "Responsable",   value: "Andrea C." },
                             ].map(({ label, value }) => (
                               <div key={label} className="flex items-center justify-between">
-                                <span className="text-gray-400" style={{ fontSize: "12px" }}>{label}</span>
-                                <span className="text-gray-700" style={{ fontSize: "12px", fontWeight: 500 }}>{value}</span>
+                                <span style={{ fontSize: "12px", color: T.sub }}>{label}</span>
+                                <span style={{ fontSize: "12px", fontWeight: 500, color: T.text }}>{value}</span>
                               </div>
                             ))}
                           </div>
                         </div>
 
                         {/* Team */}
-                        <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4">
-                          <p className="text-gray-400 mb-3" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team</p>
+                        <div className="rounded-2xl p-4" style={{ background: T.inputBg, border: `1px solid ${T.border}` }}>
+                          <p className="mb-3" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: T.sub }}>Equipo</p>
                           <div className="space-y-2">
                             {[
-                              { initials: "AS", name: "Andrea Soto",    role: "Lead" },
-                              { initials: "FC", name: "Fabian Caamaño", role: "Designer" },
-                              { initials: "AT", name: "Andrés Torres",  role: "Reviewer" },
+                              { initials: "AC", name: "Andrea Camila", role: "Lead" },
+                              { initials: "MR", name: "María Rodríguez", role: "Diseñadora" },
+                              { initials: "AT", name: "Andrés Torres",  role: "Revisor" },
                             ].map(({ initials, name, role }) => (
                               <div key={name} className="flex items-center gap-2.5">
-                                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center">
-                                  <span className="text-gray-600" style={{ fontSize: "9px", fontWeight: 700 }}>{initials}</span>
+                                <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: T.hover }}>
+                                  <span style={{ fontSize: "9px", fontWeight: 700, color: T.sub }}>{initials}</span>
                                 </div>
                                 <div>
-                                  <p className="text-gray-700" style={{ fontSize: "12px", fontWeight: 500 }}>{name}</p>
-                                  <p className="text-gray-400" style={{ fontSize: "10px" }}>{role}</p>
+                                  <p style={{ fontSize: "12px", fontWeight: 500, color: T.text }}>{name}</p>
+                                  <p style={{ fontSize: "10px", color: T.sub }}>{role}</p>
                                 </div>
                               </div>
                             ))}
-                            <button onClick={() => { setInviteEmail(""); setInviteRole("Designer"); setInviteOpen(true); }} className="flex items-center gap-1.5 text-gray-400 hover:text-gray-700 cursor-pointer mt-1 transition-colors duration-100" style={{ fontSize: "12px" }}>
-                              <Plus size={11} />Invite
+                            <button onClick={() => { setInviteEmail(""); setInviteRole("Diseñadora"); setInviteOpen(true); }} className="flex items-center gap-1.5 cursor-pointer mt-1 transition-colors duration-100" style={{ fontSize: "12px", color: T.sub }}>
+                              <Plus size={11} />Invitar
                             </button>
                           </div>
                         </div>
@@ -1245,26 +1318,26 @@ export function Frame03CampaignSetup({ onBack, onGoToDashboard, onOpenBuilder, c
       <AnimatePresence>
         {inviteOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.35)" }} onClick={() => setInviteOpen(false)}>
-            <motion.div initial={{ opacity: 0, scale: 0.95, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 8 }} transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }} className="bg-white rounded-2xl shadow-2xl p-6 w-80" onClick={(e) => e.stopPropagation()}>
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 8 }} transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }} className="rounded-2xl shadow-2xl p-6 w-80" style={{ background: T.page }} onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-5">
-                <p className="text-gray-900 font-semibold" style={{ fontSize: "14px" }}>Invite teammate</p>
-                <button onClick={() => setInviteOpen(false)} className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 cursor-pointer transition-colors"><X size={11} className="text-gray-500" /></button>
+                <p className="font-semibold" style={{ fontSize: "14px", color: T.text }}>Invitar al equipo</p>
+                <button onClick={() => setInviteOpen(false)} className="w-6 h-6 rounded-full flex items-center justify-center cursor-pointer transition-colors" style={{ background: T.hover }}><X size={11} style={{ color: T.sub }} /></button>
               </div>
               <div className="space-y-3 mb-5">
                 <div>
-                  <label className="text-gray-500 block mb-1.5" style={{ fontSize: "12px" }}>Email address</label>
-                  <input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="colleague@brand.com" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-gray-800 outline-none focus:border-gray-400 transition-colors" style={{ fontSize: "13px" }} autoFocus />
+                  <label className="block mb-1.5" style={{ fontSize: "12px", color: T.sub }}>Correo electrónico</label>
+                  <input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="colega@marca.com" className="w-full rounded-xl px-3 py-2 outline-none transition-colors" style={{ fontSize: "13px", background: T.inputBg, border: `1px solid ${T.border}`, color: T.text }} autoFocus />
                 </div>
                 <div>
-                  <label className="text-gray-500 block mb-1.5" style={{ fontSize: "12px" }}>Role</label>
-                  <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-gray-800 outline-none focus:border-gray-400 transition-colors cursor-pointer" style={{ fontSize: "13px" }}>
-                    <option>Lead</option><option>Designer</option><option>Reviewer</option>
+                  <label className="block mb-1.5" style={{ fontSize: "12px", color: T.sub }}>Rol</label>
+                  <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="w-full rounded-xl px-3 py-2 outline-none transition-colors cursor-pointer" style={{ fontSize: "13px", background: T.inputBg, border: `1px solid ${T.border}`, color: T.text }}>
+                    <option>Lead</option><option>Diseñadora</option><option>Revisor</option>
                   </select>
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setInviteOpen(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 cursor-pointer transition-colors" style={{ fontSize: "13px" }}>Cancel</button>
-                <button onClick={() => { setInviteOpen(false); toast.success(`Invite sent to ${inviteEmail || "teammate"}`); }} className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white hover:bg-black cursor-pointer transition-colors font-medium" style={{ fontSize: "13px" }}>Send invite</button>
+                <button onClick={() => setInviteOpen(false)} className="flex-1 py-2.5 rounded-xl cursor-pointer transition-colors" style={{ fontSize: "13px", border: `1px solid ${T.border}`, color: T.sub }}>Cancelar</button>
+                <button onClick={() => { setInviteOpen(false); toast.success(`Invitación enviada a ${inviteEmail || "tu colega"}`); }} className="flex-1 py-2.5 rounded-xl text-white cursor-pointer transition-colors font-medium hover:brightness-110" style={{ fontSize: "13px", background: ACCENT }}>Enviar invitación</button>
               </div>
             </motion.div>
           </motion.div>

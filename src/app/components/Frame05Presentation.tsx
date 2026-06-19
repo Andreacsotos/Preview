@@ -3,8 +3,13 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, ChevronRight, MessageSquare,
   Check, RotateCcw, Send, Download, Play, Maximize2,
+  Share2, Copy, Globe, Lock, Mail,
 } from "lucide-react";
-import type { CampaignState, UploadedPiece } from "../App";
+import { toast } from "sonner";
+import type { CampaignState, BuilderPiece } from "../App";
+import { HtmlBannerFrame } from "./HtmlBannerFrame";
+import { CoverSlide, CoverTemplateMini } from "./CoverSlide";
+import { MetaAdCard, EMPTY_AD_COPY } from "./MetaAdCard";
 
 interface Props {
   onExit: () => void;
@@ -35,7 +40,7 @@ interface PresSlide {
   subCampaign?: string;
   label: string;
   subtitle: string;
-  pieces?: UploadedPiece[];
+  pieces?: BuilderPiece[];
   partLabel?: string;
 }
 
@@ -82,7 +87,11 @@ const PLATFORM_ORDER = [
   "Twitter", "Pinterest", "Snapchat", "Display", "Programmatic",
 ];
 
-const PIECES_PER_SLIDE = 6;
+// debe coincidir con el Preview Builder para que los slides sean idénticos
+const PIECES_PER_SLIDE = 3;
+
+const DEFAULT_LEGAL =
+  "Válido del 24 / Abr. / al 7 / May. / 2026. Tarjeta Éxito Mastercard emitida por la Compañía de Financiamiento TUYA S.A.";
 
 const sortByOrder = (arr: string[]) =>
   [...arr].sort((a, b) => {
@@ -100,24 +109,19 @@ const chunkArray = <T,>(arr: T[], size: number): T[][] => {
   return result;
 };
 
-const BG_COLORS: Record<string, string> = {
-  white: "#FFFFFF",
-  gray: "#F9FAFB",
-  dark: "#111827",
-  indigo: "#EEF2FF",
-};
-
 // ── Slide builder ─────────────────────────────────────────────────────────────
 
 function buildPresSlides(campaign: CampaignState): PresSlide[] {
   const result: PresSlide[] = [
-    { id: "cover", type: "cover", label: "Cover", subtitle: campaign.campaignName },
+    { id: "cover", type: "cover", label: "Portada", subtitle: campaign.campaignName },
   ];
 
-  const groups = campaign.uploadedGroups ?? {};
+  // preferir el estado del builder: es exactamente lo que el usuario armó/editó allá
+  const builderGroups = campaign.builderState?.groups ?? {};
+  const groups = Object.keys(builderGroups).length > 0 ? builderGroups : (campaign.uploadedGroups ?? {});
   const hasPlatforms = (campaign.uploadedPlatforms?.length ?? 0) > 0;
 
-  let normalizedGroups: Record<string, Record<string, UploadedPiece[]>>;
+  let normalizedGroups: Record<string, Record<string, BuilderPiece[]>>;
   if (Object.keys(groups).length > 0) {
     normalizedGroups = groups;
   } else if (hasPlatforms) {
@@ -157,8 +161,8 @@ function buildPresSlides(campaign: CampaignState): PresSlide[] {
           platform,
           subCampaign: sub || undefined,
           platformColor: PLATFORM_COLORS[platform] ?? "#888",
-          label: multi ? `Pieces ${i + 1}/${chunks.length}` : "Pieces",
-          subtitle: `${chunk.length} piece${chunk.length !== 1 ? "s" : ""}`,
+          label: multi ? `Piezas ${i + 1}/${chunks.length}` : "Piezas",
+          subtitle: `${chunk.length} pieza${chunk.length !== 1 ? "s" : ""}`,
           pieces: chunk,
           partLabel: multi ? `${i + 1}/${chunks.length}` : undefined,
         });
@@ -170,206 +174,161 @@ function buildPresSlides(campaign: CampaignState): PresSlide[] {
 }
 
 // ── Cover slide ───────────────────────────────────────────────────────────────
-
-function CoverSlide({ campaign }: { campaign: CampaignState }) {
-  const bg = BG_COLORS[campaign.selectedBg] ?? "#FFFFFF";
-  const isDark = campaign.selectedBg === "dark";
-  const textPrimary = isDark ? "#F9FAFB" : "#111827";
-  const textSecondary = isDark ? "#9CA3AF" : "#6B7280";
-  const textMuted = isDark ? "#4B5563" : "#D1D5DB";
-
-  const Logo = () => {
-    if (campaign.logoUrl) {
-      return <img src={campaign.logoUrl} alt="Logo" className="h-12 max-w-[140px] object-contain" />;
-    }
-    return (
-      <div className="flex items-center gap-2.5">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: campaign.brandColor }}>
-          <svg width="16" height="12" viewBox="0 0 12.9104 10.3283" fill="none">
-            <path d="M12.799 0.211896V8.32163H6.49027V6.51912H10.9965V2.0144H1.98553V0.211896H12.799Z" fill="white" />
-            <path d="M6.49032 8.32165V10.1241H0.183076V2.0144H1.98558V8.32165H6.49032Z" fill="white" />
-          </svg>
-        </div>
-        <span className="font-semibold text-sm" style={{ color: textPrimary }}>VisionStudio</span>
-      </div>
-    );
-  };
-
-  if (campaign.coverTemplate === "bold") {
-    return (
-      <div className="w-full h-full flex flex-col" style={{ backgroundColor: "#111827" }}>
-        <div className="px-12 pt-10 pb-4"><Logo /></div>
-        {campaign.heroUrl
-          ? <div className="flex-1 mx-12 rounded-lg overflow-hidden"><img src={campaign.heroUrl} alt="" className="w-full h-full object-cover" /></div>
-          : <div className="flex-1 mx-12 rounded-lg bg-gray-800" />}
-        <div className="px-12 py-8">
-          <h1 className="font-bold tracking-tight text-white mb-2" style={{ fontSize: "40px", lineHeight: 1.1 }}>{campaign.campaignName}</h1>
-          <p className="text-gray-400 text-sm">{campaign.clientName} · {campaign.reviewRound} · {campaign.shippingDate}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (campaign.coverTemplate === "minimal") {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-5" style={{ backgroundColor: "#F9FAFB" }}>
-        <div className="h-px w-10" style={{ backgroundColor: textMuted }} />
-        <div className="text-center space-y-2">
-          <h1 className="font-semibold tracking-tight" style={{ fontSize: "32px", color: textPrimary }}>{campaign.campaignName}</h1>
-          <p className="text-sm" style={{ color: textSecondary }}>{campaign.clientName}</p>
-        </div>
-        <div className="h-px w-10" style={{ backgroundColor: textMuted }} />
-        <p className="text-xs" style={{ color: textMuted }}>{campaign.reviewRound} · {campaign.shippingDate}</p>
-      </div>
-    );
-  }
-
-  if (campaign.coverTemplate === "brand") {
-    return (
-      <div className="w-full h-full flex flex-col" style={{ backgroundColor: "#EEF2FF" }}>
-        <div className="px-10 py-7 flex items-center justify-between shrink-0">
-          <Logo />
-          <span className="text-xs font-medium" style={{ color: "#6366F1" }}>{campaign.clientName}</span>
-        </div>
-        <div className="flex-1 mx-10 rounded-xl overflow-hidden bg-indigo-100">
-          {campaign.heroUrl ? <img src={campaign.heroUrl} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-indigo-200" />}
-        </div>
-        <div className="px-10 py-6 shrink-0">
-          <div className="w-8 h-1 rounded-full mb-3" style={{ backgroundColor: campaign.brandColor }} />
-          <h1 className="font-semibold tracking-tight mb-1" style={{ fontSize: "28px", color: "#1E1B4B" }}>{campaign.campaignName}</h1>
-          <p className="text-sm" style={{ color: "#6366F1" }}>{campaign.reviewRound} · {campaign.shippingDate}</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full h-full flex flex-col" style={{ backgroundColor: bg }}>
-      <div className="px-12 pt-10 shrink-0"><Logo /></div>
-      <div className="flex-1" />
-      <div className="px-12 pb-10">
-        <div className="w-10 h-px mb-6" style={{ backgroundColor: campaign.brandColor }} />
-        <h1 className="font-semibold tracking-tight mb-3" style={{ fontSize: "36px", lineHeight: 1.15, color: textPrimary }}>{campaign.campaignName}</h1>
-        <p className="text-sm mb-1" style={{ color: textSecondary }}>{campaign.clientName}</p>
-        <p className="text-xs" style={{ color: textMuted }}>{campaign.reviewRound} · {campaign.shippingDate}</p>
-      </div>
-    </div>
-  );
-}
+// (compartida con el Preview Builder — ver components/CoverSlide.tsx)
 
 // ── Intro slide ───────────────────────────────────────────────────────────────
 
-function IntroSlide({ slide }: { slide: PresSlide }) {
-  const color = slide.platformColor ?? "#888";
+function IntroSlide({ slide, campaign }: { slide: PresSlide; campaign: CampaignState }) {
+  const d = campaign.builderState?.introData?.[`${slide.subCampaign ?? ""}||${slide.platform}`];
+  const title = d?.title ?? `${slide.platform} Ads`;
+  const subtitle = d?.subtitle ?? "";
   return (
-    <div className="w-full h-full bg-white flex flex-col items-center justify-center gap-3 relative overflow-hidden">
-      <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundColor: color }} />
-      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+    <div className="w-full h-full bg-white flex flex-col items-center justify-center p-12 text-center gap-4">
       {slide.subCampaign && (
-        <p className="text-gray-400 font-medium tracking-widest uppercase" style={{ fontSize: "11px" }}>{slide.subCampaign}</p>
+        <p className="text-gray-300 uppercase tracking-[0.15em]" style={{ fontSize: "9px" }}>{slide.subCampaign}</p>
       )}
-      <h2 className="font-semibold tracking-tight text-gray-900" style={{ fontSize: "36px" }}>{slide.platform}</h2>
-      <p className="text-gray-400 text-sm">Ad Creative Review</p>
+      <div className="flex items-center gap-3">
+        <div className="h-px bg-gray-200 w-14" />
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: slide.platformColor }} />
+          <span className="text-gray-400 font-semibold tracking-widest uppercase" style={{ fontSize: "10px" }}>
+            {slide.platform}
+          </span>
+        </div>
+        <div className="h-px bg-gray-200 w-14" />
+      </div>
+      <h2 className="text-gray-900 font-bold" style={{ fontSize: "38px", fontWeight: 700, letterSpacing: "-0.5px" }}>{title}</h2>
+      {subtitle && <p className="text-gray-400" style={{ fontSize: "14px" }}>{subtitle}</p>}
+      <div className="h-px bg-gray-100 w-20 mt-1" />
     </div>
   );
 }
 
-// ── Media cell (image or video) ───────────────────────────────────────────────
-
-function MediaCell({ piece, onClick }: { piece: UploadedPiece; onClick?: () => void }) {
-  const isVideo = piece.fileType === "video";
-  return (
-    <div
-      className={`w-full h-full relative ${onClick ? "cursor-pointer group" : ""}`}
-      onClick={onClick}
-    >
-      {isVideo ? (
-        <>
-          <video
-            src={piece.imageUrl}
-            className="w-full h-full object-contain"
-            preload="metadata"
-            muted
-            playsInline
-          />
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-            <div className="w-10 h-10 rounded-full bg-black/60 flex items-center justify-center">
-              <Play size={16} className="text-white ml-0.5" fill="white" />
-            </div>
-          </div>
-        </>
-      ) : piece.imageUrl ? (
-        <img src={piece.imageUrl} alt={piece.name} className="w-full h-full object-contain" />
-      ) : (
-        <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-          <div className="w-10 h-7 rounded bg-gray-200 border border-gray-300" />
-        </div>
-      )}
-      {onClick && (
-        <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-          <div className="w-6 h-6 rounded-md bg-black/50 flex items-center justify-center">
-            <Maximize2 size={10} className="text-white" />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Pieces slide ──────────────────────────────────────────────────────────────
+// ── Pieces slide — réplica exacta del layout del Preview Builder (solo lectura) ──
 
 function PiecesSlide({
   slide,
+  campaign,
   commentMode,
   onPieceClick,
   onPieceDetail,
 }: {
   slide: PresSlide;
+  campaign: CampaignState;
   commentMode: boolean;
   onPieceClick?: (e: React.MouseEvent, pieceId: string, pieceLabel: string) => void;
   onPieceDetail?: (idx: number) => void;
 }) {
+  const bs = campaign.builderState;
   const pieces = slide.pieces ?? [];
-  const count = pieces.length;
-  const cols = count <= 2 ? count : count <= 4 ? 2 : 3;
+  const isMeta = slide.platform === "Meta";
+  const cols = pieces.length <= 1 ? 1 : pieces.length === 2 ? 2 : 3;
+  const sl = bs?.slideLegals?.[slide.id] ?? { legal: DEFAULT_LEGAL, brand: "—" };
 
   return (
-    <div className="w-full h-full bg-white flex flex-col">
-      <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: slide.platformColor ?? "#888" }} />
-          <span className="text-gray-700 text-sm font-medium">{slide.platform}</span>
-          {slide.subCampaign && <span className="text-gray-400 text-xs">· {slide.subCampaign}</span>}
-          {slide.partLabel && <span className="text-gray-400 text-xs">· Part {slide.partLabel}</span>}
+    <div className="w-full h-full bg-white flex">
+      {/* LEFT — Legales */}
+      <div className="p-3 flex flex-col gap-2 overflow-y-auto shrink-0" style={{ width: "20%", borderRight: "1px solid #f3f4f6" }}>
+        <div className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: slide.platformColor }} />
+          <span className="text-gray-400 font-semibold tracking-widest uppercase" style={{ fontSize: "8px" }}>
+            {slide.platform}
+          </span>
+          {slide.subCampaign && (
+            <span className="text-gray-300 ml-1" style={{ fontSize: "7px" }}>{slide.subCampaign}</span>
+          )}
+          {slide.partLabel && (
+            <span className="ml-auto text-gray-300" style={{ fontSize: "8px" }}>Parte {slide.partLabel}</span>
+          )}
         </div>
-        <span className="text-gray-400 text-xs">{count} piece{count !== 1 ? "s" : ""}</span>
+        <div className="flex flex-col gap-2 flex-1">
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 bg-violet-500 rotate-45 shrink-0" />
+            <span className="text-violet-600 font-semibold tracking-widest uppercase" style={{ fontSize: "8px" }}>Legales</span>
+          </div>
+          <p className="text-gray-500 w-full flex-1" style={{ fontSize: "8px", lineHeight: "1.65", whiteSpace: "pre-wrap" }}>
+            {sl.legal}
+          </p>
+          <span className="self-start bg-violet-50 text-violet-700 rounded-full px-2 py-0.5 font-semibold" style={{ fontSize: "8px", maxWidth: "80px" }}>
+            {sl.brand}
+          </span>
+        </div>
       </div>
-      <div className="flex-1 overflow-hidden p-4">
-        <div className="h-full grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
-          {pieces.map((piece, idx) => (
-            <div
-              key={piece.id}
-              data-piece-id={piece.id}
-              data-piece-label={piece.name}
-              className="relative rounded-lg overflow-hidden border border-gray-200 bg-gray-50 flex flex-col"
-              style={{ cursor: commentMode ? "crosshair" : "default" }}
-              onClick={commentMode && onPieceClick
-                ? (e) => onPieceClick(e, piece.id, piece.name)
-                : undefined
-              }
-            >
-              <div className="flex-1 overflow-hidden p-1.5">
-                <MediaCell
-                  piece={piece}
-                  onClick={!commentMode && onPieceDetail ? () => onPieceDetail(idx) : undefined}
-                />
+
+      {/* RIGHT — Grid de piezas (mismo layout del builder) */}
+      <div className="flex-1 flex flex-col overflow-hidden p-3">
+        <div
+          className="flex-1 grid min-h-0"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: "minmax(0, 1fr)", gap: "10px" }}
+        >
+          {pieces.map((piece, idx) => {
+            const pd = bs?.piecesData?.[piece.id] ?? {};
+            const name = pd.name ?? piece.name;
+            const pieceTitle = pd.title ?? piece.title;
+            const ar = bs?.measuredAr?.[piece.id] ?? piece.ar;
+            const useMockup = isMeta && piece.fileType !== "video" && ar >= 0.9;
+            const detailClick = !commentMode && onPieceDetail ? () => onPieceDetail(idx) : undefined;
+
+            return (
+              <div
+                key={piece.id}
+                data-piece-id={piece.id}
+                data-piece-label={name}
+                className="flex flex-col gap-1 relative min-h-0"
+                style={{ cursor: commentMode ? "crosshair" : detailClick ? "pointer" : "default" }}
+                onClick={commentMode && onPieceClick ? (e) => onPieceClick(e, piece.id, name) : detailClick}
+              >
+                {useMockup ? (
+                  <MetaAdCard
+                    imageUrl={piece.imageUrl}
+                    fileType={piece.fileType}
+                    name={name}
+                    ar={ar}
+                    ad={bs?.adCopyData?.[piece.id] ?? EMPTY_AD_COPY}
+                    brandName={campaign.clientName}
+                    logoUrl={campaign.logoUrl}
+                  />
+                ) : (
+                  <>
+                    <div className="relative w-full min-h-0" style={{ aspectRatio: String(ar), flex: "0 1 auto" }}>
+                      {piece.fileType === "html" && piece.imageUrl ? (
+                        <HtmlBannerFrame
+                          src={piece.imageUrl}
+                          title={name}
+                          className="absolute inset-0"
+                          style={{ width: "100%", height: "100%", pointerEvents: "none" }}
+                        />
+                      ) : piece.fileType === "video" && piece.imageUrl ? (
+                        <video
+                          src={piece.imageUrl}
+                          className="absolute inset-0 w-full h-full object-contain"
+                          preload="metadata"
+                          controls
+                          playsInline
+                          style={{ background: "#000" }}
+                        />
+                      ) : piece.imageUrl ? (
+                        <img
+                          src={piece.imageUrl}
+                          alt={name}
+                          className="absolute inset-0 w-full h-full object-contain"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 rounded-lg border flex items-center justify-center" style={{ background: "#f9fafb", borderColor: "#f3f4f6" }}>
+                          <div className="w-8 h-4 rounded opacity-60" style={{ background: "#f3f4f6" }} />
+                        </div>
+                      )}
+                    </div>
+                    <p className="w-full shrink-0 truncate" style={{ fontSize: "7px", fontFamily: "monospace", color: "#6b7280" }}>{name}</p>
+                    <span className="shrink-0" style={{ fontSize: "7px", color: "#d1d5db" }}>{piece.dim}</span>
+                    {pieceTitle && (
+                      <p className="w-full font-medium shrink-0" style={{ fontSize: "9px", color: "#6b7280" }}>{pieceTitle}</p>
+                    )}
+                  </>
+                )}
               </div>
-              <div className="px-2 py-1.5 border-t border-gray-100 shrink-0">
-                <p className="text-gray-700 truncate" style={{ fontSize: "10px", fontWeight: 500 }}>{piece.name}</p>
-                <p className="text-gray-400 truncate" style={{ fontSize: "9px" }}>{piece.dim}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -392,10 +351,11 @@ function FullSlide({
   onPieceDetail?: (idx: number) => void;
 }) {
   if (slide.type === "cover") return <CoverSlide campaign={campaign} />;
-  if (slide.type === "intro") return <IntroSlide slide={slide} />;
+  if (slide.type === "intro") return <IntroSlide slide={slide} campaign={campaign} />;
   return (
     <PiecesSlide
       slide={slide}
+      campaign={campaign}
       commentMode={commentMode}
       onPieceClick={onPieceClick}
       onPieceDetail={onPieceDetail}
@@ -422,18 +382,11 @@ function SlideThumbnail({
 }) {
   const renderMini = () => {
     if (slide.type === "cover") {
-      const bg = BG_COLORS[campaign.selectedBg] ?? "#fff";
-      const isDark = campaign.selectedBg === "dark";
       return (
-        <div className="w-full h-full flex flex-col justify-between p-2" style={{ backgroundColor: bg }}>
-          {campaign.logoUrl
-            ? <img src={campaign.logoUrl} alt="" className="w-4 h-4 object-contain" />
-            : <div className="w-2 h-2 rounded-[2px]" style={{ backgroundColor: campaign.brandColor }} />}
-          <div>
-            <div className="w-10 h-[4px] rounded mb-0.5" style={{ backgroundColor: isDark ? "#F9FAFB" : "#111827" }} />
-            <div className="w-7 h-[3px] rounded" style={{ backgroundColor: isDark ? "#4B5563" : "#D1D5DB" }} />
-          </div>
-        </div>
+        <CoverTemplateMini
+          id={(campaign.coverTemplate || "classic").toLowerCase()}
+          accent={campaign.brandColor || "#2c6bf2"}
+        />
       );
     }
     if (slide.type === "intro") {
@@ -503,7 +456,7 @@ function PieceDetailOverlay({
   onNext,
   onClose,
 }: {
-  piece: UploadedPiece;
+  piece: BuilderPiece;
   totalCount: number;
   currentIdx: number;
   onPrev: () => void;
@@ -676,7 +629,7 @@ function PendingBubble({
         ref={textareaRef}
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        placeholder="Leave a comment…"
+        placeholder="Deja un comentario…"
         rows={3}
         className="w-full resize-none border border-gray-200 rounded-lg px-2.5 py-2 text-gray-700 outline-none focus:border-gray-400 transition-colors"
         style={{ fontSize: "12px" }}
@@ -746,7 +699,7 @@ function CommentCard({
           <div>
             <p className="text-gray-800" style={{ fontSize: "11px", fontWeight: 600 }}>{comment.authorName}</p>
             {comment.elementLabel && (
-              <p className="text-gray-400" style={{ fontSize: "10px" }}>on {comment.elementLabel}</p>
+              <p className="text-gray-400" style={{ fontSize: "10px" }}>en {comment.elementLabel}</p>
             )}
           </div>
         </div>
@@ -758,7 +711,7 @@ function CommentCard({
               style={{ fontSize: "10px" }}
             >
               <RotateCcw size={9} />
-              Reopen
+              Reabrir
             </button>
           ) : (
             <button
@@ -767,7 +720,7 @@ function CommentCard({
               style={{ fontSize: "10px" }}
             >
               <Check size={9} />
-              Resolve
+              Resolver
             </button>
           )}
         </div>
@@ -796,7 +749,7 @@ function CommentCard({
               autoFocus
               value={replyBody}
               onChange={(e) => setReplyBody(e.target.value)}
-              placeholder="Reply…"
+              placeholder="Responder…"
               rows={2}
               className="w-full resize-none border border-gray-200 rounded-lg px-2 py-1.5 text-gray-700 outline-none focus:border-gray-400 transition-colors"
               style={{ fontSize: "11px" }}
@@ -810,7 +763,7 @@ function CommentCard({
             />
             <div className="flex items-center justify-between">
               <button onClick={() => setReplying(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors" style={{ fontSize: "10px" }}>
-                Cancel
+                Cancelar
               </button>
               <button
                 onClick={() => { if (replyBody.trim()) { onReply(replyBody.trim()); setReplyBody(""); setReplying(false); } }}
@@ -819,7 +772,7 @@ function CommentCard({
                 style={{ fontSize: "10px" }}
               >
                 <Send size={9} />
-                Reply
+                Responder
               </button>
             </div>
           </div>
@@ -829,7 +782,7 @@ function CommentCard({
             className="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors mt-0.5"
             style={{ fontSize: "10px" }}
           >
-            Reply
+            Responder
           </button>
         )
       )}
@@ -850,15 +803,15 @@ function NamePromptModal({ onSave }: { onSave: (name: string) => void }) {
         className="bg-white rounded-2xl shadow-2xl p-6 w-80 flex flex-col gap-4"
       >
         <div>
-          <h3 className="text-gray-900 font-semibold" style={{ fontSize: "15px" }}>Who's commenting?</h3>
-          <p className="text-gray-400 mt-1" style={{ fontSize: "12px" }}>Enter your name to leave comments on this presentation.</p>
+          <h3 className="text-gray-900 font-semibold" style={{ fontSize: "15px" }}>¿Quién está viendo?</h3>
+          <p className="text-gray-400 mt-1" style={{ fontSize: "12px" }}>Escribe tu nombre para entrar a la presentación. Así todos saben quién está viendo y quién comenta.</p>
         </div>
         <input
           autoFocus
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Your name"
+          placeholder="Tu nombre"
           className="border border-gray-200 rounded-xl px-3 py-2 text-gray-800 outline-none focus:border-gray-400 transition-colors w-full"
           style={{ fontSize: "13px" }}
           onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) onSave(name.trim()); }}
@@ -869,7 +822,7 @@ function NamePromptModal({ onSave }: { onSave: (name: string) => void }) {
           className="w-full bg-gray-900 text-white rounded-xl py-2 cursor-pointer hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default transition-all font-medium"
           style={{ fontSize: "13px" }}
         >
-          Start commenting
+          Entrar
         </button>
       </motion.div>
     </div>
@@ -884,12 +837,16 @@ function ExportModal({
   onExportBannersByCampaign,
   onExportBannersByChannel,
   onExportPDF,
+  videoPreset,
+  onVideoPresetChange,
 }: {
   onClose: () => void;
   onExportBannersAll: () => void;
   onExportBannersByCampaign: () => void;
   onExportBannersByChannel: () => void;
   onExportPDF: () => void;
+  videoPreset: VideoPresetId;
+  onVideoPresetChange: (p: VideoPresetId) => void;
 }) {
   const [expandedOption, setExpandedOption] = useState<"banners" | null>(null);
 
@@ -907,7 +864,7 @@ function ExportModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-gray-900 font-semibold" style={{ fontSize: "15px" }}>Export Presentation</h3>
+          <h3 className="text-gray-900 font-semibold" style={{ fontSize: "15px" }}>Exportar presentación</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
             <X size={16} />
           </button>
@@ -926,7 +883,7 @@ function ExportModal({
               <div className="flex-1">
                 <p className="text-gray-900 font-semibold" style={{ fontSize: "14px" }}>BANNERS</p>
                 <p className="text-gray-400 mt-0.5" style={{ fontSize: "11px" }}>
-                  Export as JPG/PNG (images) and MP4 (videos), organized in folder structure
+                  Exporta JPG/PNG (imágenes) y MP4 (videos), organizados en estructura de carpetas
                 </p>
               </div>
               <ChevronRight
@@ -944,23 +901,46 @@ function ExportModal({
                   className="border-t border-gray-100"
                 >
                   <div className="px-3 pb-3 pt-2 flex flex-col gap-1.5">
+                    {/* Optimización de video — estilo Frame.io */}
+                    <div className="rounded-lg bg-gray-50 border border-gray-100 p-2.5 mb-1">
+                      <p className="text-gray-500 mb-1.5" style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                        Optimización de video
+                      </p>
+                      <div className="flex flex-col gap-0.5">
+                        {VIDEO_PRESETS.map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={() => onVideoPresetChange(p.id)}
+                            className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-left cursor-pointer transition-all ${
+                              videoPreset === p.id ? "bg-white border border-gray-300 shadow-sm" : "border border-transparent hover:bg-white/60"
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <span className="text-gray-800" style={{ fontSize: "11px", fontWeight: 600 }}>{p.label}</span>
+                              <span className="text-gray-400 ml-1.5" style={{ fontSize: "10px" }}>{p.desc}</span>
+                            </div>
+                            {videoPreset === p.id && <Check size={12} className="text-gray-700 shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <button
                       onClick={onExportBannersAll}
                       className="w-full px-3 py-2 rounded-lg text-left hover:bg-gray-100 cursor-pointer transition-colors"
                     >
-                      <p className="text-gray-700" style={{ fontSize: "12px", fontWeight: 500 }}>All pieces</p>
+                      <p className="text-gray-700" style={{ fontSize: "12px", fontWeight: 500 }}>Todas las piezas</p>
                     </button>
                     <button
                       onClick={onExportBannersByCampaign}
                       className="w-full px-3 py-2 rounded-lg text-left hover:bg-gray-100 cursor-pointer transition-colors"
                     >
-                      <p className="text-gray-700" style={{ fontSize: "12px", fontWeight: 500 }}>By campaign</p>
+                      <p className="text-gray-700" style={{ fontSize: "12px", fontWeight: 500 }}>Por campaña</p>
                     </button>
                     <button
                       onClick={onExportBannersByChannel}
                       className="w-full px-3 py-2 rounded-lg text-left hover:bg-gray-100 cursor-pointer transition-colors"
                     >
-                      <p className="text-gray-700" style={{ fontSize: "12px", fontWeight: 500 }}>By channel</p>
+                      <p className="text-gray-700" style={{ fontSize: "12px", fontWeight: 500 }}>Por canal</p>
                     </button>
                   </div>
                 </motion.div>
@@ -979,9 +959,249 @@ function ExportModal({
             <div className="flex-1">
               <p className="text-gray-900 font-semibold" style={{ fontSize: "14px" }}>PDF</p>
               <p className="text-gray-400 mt-0.5" style={{ fontSize: "11px" }}>
-                Export entire presentation as single PDF file
+                Exporta toda la presentación como un único archivo PDF
               </p>
             </div>
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ── Share modal ───────────────────────────────────────────────────────────────
+
+// Clave de acceso generada por el sistema (se renueva cada 30 días)
+const genAccessKey = () => Math.random().toString(36).slice(2, 6).toUpperCase() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
+
+// ── Optimización de video (estilo Frame.io) ───────────────────────────────────
+
+export const VIDEO_PRESETS = [
+  { id: "original", label: "Original", desc: "Sin recomprimir · calidad y peso de origen", maxH: 0, bps: 0 },
+  { id: "1080", label: "1080p · Alta", desc: "~8 Mbps · revisión de alta fidelidad", maxH: 1080, bps: 8_000_000 },
+  { id: "720", label: "720p · Media", desc: "~4 Mbps · balance entre peso y calidad", maxH: 720, bps: 4_000_000 },
+  { id: "540", label: "540p · Proxy", desc: "~2 Mbps · liviano, ideal para compartir", maxH: 540, bps: 2_000_000 },
+] as const;
+
+export type VideoPresetId = (typeof VIDEO_PRESETS)[number]["id"];
+
+// Recomprime un video en el navegador (canvas + MediaRecorder).
+// Reproduce el video en tiempo real mientras lo recaptura a la resolución/bitrate objetivo.
+async function optimizeVideo(url: string, maxHeight: number, bps: number): Promise<{ blob: Blob; ext: string }> {
+  const video = document.createElement("video");
+  video.src = url;
+  video.muted = true;
+  video.playsInline = true;
+  await new Promise<void>((res, rej) => {
+    video.onloadedmetadata = () => res();
+    video.onerror = () => rej(new Error("No se pudo cargar el video"));
+  });
+
+  const scale = Math.min(1, maxHeight / (video.videoHeight || maxHeight));
+  const w = Math.max(2, Math.round((video.videoWidth * scale) / 2) * 2);
+  const h = Math.max(2, Math.round((video.videoHeight * scale) / 2) * 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  const stream = canvas.captureStream(30);
+
+  // conservar el audio original si el navegador lo permite
+  try {
+    const src = (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream?.();
+    src?.getAudioTracks().forEach((t) => stream.addTrack(t));
+  } catch { /* sin audio si captureStream no está disponible */ }
+
+  const mime = MediaRecorder.isTypeSupported("video/mp4;codecs=avc1")
+    ? "video/mp4;codecs=avc1"
+    : MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+      ? "video/webm;codecs=vp9"
+      : "video/webm";
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bps });
+  const chunks: BlobPart[] = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const stopped = new Promise<void>((res) => { rec.onstop = () => res(); });
+
+  let raf = 0;
+  const draw = () => { ctx.drawImage(video, 0, 0, w, h); raf = requestAnimationFrame(draw); };
+
+  rec.start(250);
+  await video.play();
+  draw();
+  await new Promise<void>((res) => { video.onended = () => res(); });
+  cancelAnimationFrame(raf);
+  rec.stop();
+  await stopped;
+  video.src = "";
+
+  return { blob: new Blob(chunks, { type: mime.split(";")[0] }), ext: mime.includes("mp4") ? "mp4" : "webm" };
+}
+
+function ShareModal({
+  shareUrl,
+  access,
+  onAccessChange,
+  password,
+  onPasswordChange,
+  invited,
+  onInvite,
+  onRemoveInvite,
+  onClose,
+}: {
+  shareUrl: string;
+  access: "public" | "password";
+  onAccessChange: (a: "public" | "password") => void;
+  password: string;
+  onPasswordChange: (p: string) => void;
+  invited: string[];
+  onInvite: (email: string) => void;
+  onRemoveInvite: (email: string) => void;
+  onClose: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(access === "password" && password ? `${shareUrl}?clave` : shareUrl);
+      toast.success("Link copiado al portapapeles");
+    } catch {
+      toast.error("No se pudo copiar el link");
+    }
+  };
+
+  const sendInvite = () => {
+    if (!emailValid) return;
+    onInvite(email.trim().toLowerCase());
+    toast.success(`Invitación enviada a ${email.trim()}`);
+    setEmail("");
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        className="bg-white rounded-2xl shadow-2xl p-6 w-[440px] flex flex-col gap-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-gray-900 font-semibold" style={{ fontSize: "15px" }}>Compartir presentación</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Invitar por correo */}
+        <div>
+          <p className="text-gray-400 mb-2" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Invitar personas</p>
+          <div className="flex gap-2">
+            <div className="flex-1 flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 focus-within:border-gray-400 transition-colors">
+              <Mail size={13} className="text-gray-400 shrink-0" />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") sendInvite(); }}
+                placeholder="correo@empresa.com"
+                className="flex-1 outline-none text-gray-800 bg-transparent"
+                style={{ fontSize: "13px" }}
+              />
+            </div>
+            <button
+              onClick={sendInvite}
+              disabled={!emailValid}
+              className="bg-gray-900 text-white rounded-xl px-4 cursor-pointer hover:bg-gray-700 disabled:opacity-40 disabled:cursor-default transition-all font-medium"
+              style={{ fontSize: "13px" }}
+            >
+              Invitar
+            </button>
+          </div>
+          {invited.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2.5">
+              {invited.map((em) => (
+                <span key={em} className="flex items-center gap-1.5 bg-gray-100 text-gray-600 rounded-full pl-2.5 pr-1.5 py-1" style={{ fontSize: "11px" }}>
+                  {em}
+                  <button onClick={() => onRemoveInvite(em)} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="h-px bg-gray-100" />
+
+        {/* Acceso al link */}
+        <div>
+          <p className="text-gray-400 mb-2" style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Acceso al link</p>
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={() => onAccessChange("public")}
+              className={`flex items-start gap-3 p-3 rounded-xl border text-left cursor-pointer transition-all ${access === "public" ? "border-gray-900 bg-gray-50" : "border-gray-200 hover:border-gray-300"}`}
+            >
+              <Globe size={15} className={access === "public" ? "text-gray-900 mt-0.5" : "text-gray-400 mt-0.5"} />
+              <div className="flex-1">
+                <p className="text-gray-900 font-medium" style={{ fontSize: "13px" }}>Cualquiera con el enlace</p>
+                <p className="text-gray-400" style={{ fontSize: "11px" }}>Cualquier persona con el enlace puede ver la presentación</p>
+              </div>
+              {access === "public" && <Check size={14} className="text-gray-900 mt-0.5" />}
+            </button>
+            <button
+              onClick={() => onAccessChange("password")}
+              className={`flex items-start gap-3 p-3 rounded-xl border text-left cursor-pointer transition-all ${access === "password" ? "border-gray-900 bg-gray-50" : "border-gray-200 hover:border-gray-300"}`}
+            >
+              <Lock size={15} className={access === "password" ? "text-gray-900 mt-0.5" : "text-gray-400 mt-0.5"} />
+              <div className="flex-1">
+                <p className="text-gray-900 font-medium" style={{ fontSize: "13px" }}>Protegido con clave</p>
+                <p className="text-gray-400" style={{ fontSize: "11px" }}>Acceso con clave de seguridad, que se renueva automáticamente cada 30 días</p>
+              </div>
+              {access === "password" && <Check size={14} className="text-gray-900 mt-0.5" />}
+            </button>
+            {access === "password" && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="overflow-hidden">
+                <div className="flex items-center gap-2 mt-0.5">
+                  <div className="flex-1 border border-gray-200 rounded-xl px-3 py-2 bg-gray-50 text-gray-800 tracking-widest" style={{ fontSize: "13px", fontFamily: "monospace" }}>
+                    {password}
+                  </div>
+                  <button
+                    onClick={() => onPasswordChange(genAccessKey())}
+                    title="Generar nueva clave"
+                    className="p-2.5 rounded-xl border border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300 cursor-pointer transition-all"
+                  >
+                    <RotateCcw size={13} />
+                  </button>
+                  <button
+                    onClick={async () => { try { await navigator.clipboard.writeText(password); toast.success("Clave copiada"); } catch {} }}
+                    title="Copiar clave"
+                    className="p-2.5 rounded-xl border border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300 cursor-pointer transition-all"
+                  >
+                    <Copy size={13} />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </div>
+        </div>
+
+        {/* Link */}
+        <div className="flex gap-2">
+          <div className="flex-1 border border-gray-200 rounded-xl px-3 py-2 bg-gray-50 truncate text-gray-500" style={{ fontSize: "12px", fontFamily: "monospace" }}>
+            {shareUrl}
+          </div>
+          <button
+            onClick={copyLink}
+            className="flex items-center gap-1.5 bg-gray-900 text-white rounded-xl px-3.5 cursor-pointer hover:bg-gray-700 transition-all font-medium shrink-0"
+            style={{ fontSize: "12px" }}
+          >
+            <Copy size={12} />
+            Copiar link
           </button>
         </div>
       </motion.div>
@@ -1011,6 +1231,23 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
   const [detailPieceIdx, setDetailPieceIdx] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [videoPreset, setVideoPreset] = useState<VideoPresetId>("original");
+
+  // ── Compartir ──
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareAccess, setShareAccess] = useState<"public" | "password">("public");
+  const [sharePassword, setSharePassword] = useState("");
+  const [invitedEmails, setInvitedEmails] = useState<string[]>([]);
+  const shareUrl = useMemo(() => {
+    const slug = (campaign.campaignName || "preview").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const token = Math.random().toString(36).slice(2, 8);
+    return `${window.location.origin}/p/${slug}-${token}`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaign.campaignName]);
+
+  // ── Presencia (quién está viendo) — via BroadcastChannel entre pestañas ──
+  const sessionId = useRef(`s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+  const [viewers, setViewers] = useState<Record<string, { name: string; color: string; ts: number }>>({});
 
   const slideRef = useRef<HTMLDivElement>(null);
   const safeIndex = Math.min(current, Math.max(0, slides.length - 1));
@@ -1024,10 +1261,80 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
     });
   }, []);
 
+  // Gate de entrada: para ver/comentar hay que identificarse (así se sabe quién está en el archivo)
+  useEffect(() => {
+    if (!authorName) setShowNamePrompt(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Presencia entre pestañas: announce/ping/leave con heartbeat, igual que los avatares de Figma
+  useEffect(() => {
+    if (!authorName || typeof BroadcastChannel === "undefined") return;
+    const PRESENCE_COLORS = ["#2c6bf2", "#E11D48", "#10B981", "#F59E0B", "#8B5CF6", "#0EA5E9"];
+    const myColor = PRESENCE_COLORS[sessionId.current.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % PRESENCE_COLORS.length];
+    const ch = new BroadcastChannel(`vs-presence-${campaign.campaignName || "default"}`);
+    const me = () => ({ id: sessionId.current, name: authorName, color: myColor });
+
+    ch.onmessage = (e) => {
+      const m = e.data as { type: string; id: string; name: string; color: string };
+      if (m.id === sessionId.current) return;
+      if (m.type === "join" || m.type === "ping") {
+        setViewers((v) => ({ ...v, [m.id]: { name: m.name, color: m.color, ts: Date.now() } }));
+        if (m.type === "join") ch.postMessage({ type: "ping", ...me() }); // que el recién llegado nos vea
+      }
+      if (m.type === "leave") {
+        setViewers((v) => { const n = { ...v }; delete n[m.id]; return n; });
+      }
+    };
+
+    ch.postMessage({ type: "join", ...me() });
+    const heartbeat = setInterval(() => {
+      ch.postMessage({ type: "ping", ...me() });
+      // limpiar viewers sin señal reciente
+      setViewers((v) => Object.fromEntries(Object.entries(v).filter(([, x]) => Date.now() - x.ts < 8000)));
+    }, 3000);
+
+    const leave = () => { try { ch.postMessage({ type: "leave", ...me() }); } catch {} };
+    window.addEventListener("beforeunload", leave);
+    return () => {
+      leave();
+      window.removeEventListener("beforeunload", leave);
+      clearInterval(heartbeat);
+      ch.close();
+      setViewers({});
+    };
+  }, [authorName, campaign.campaignName]);
+
+  // Resuelve el archivo de una pieza aplicando la optimización de video elegida
+  const getPieceFile = useCallback(async (piece: BuilderPiece): Promise<{ blob: Blob; fileName: string } | null> => {
+    if (!piece.imageUrl) return null;
+    const baseName = (piece.fileName ?? piece.name).replace(/\.[^.]+$/, "");
+    if (piece.fileType === "video" && videoPreset !== "original") {
+      const preset = VIDEO_PRESETS.find((p) => p.id === videoPreset)!;
+      try {
+        const { blob, ext } = await optimizeVideo(piece.imageUrl, preset.maxH, preset.bps);
+        return { blob, fileName: `${baseName}_${preset.id}p.${ext}` };
+      } catch {
+        // si falla la recompresión, exportar el original
+      }
+    }
+    const resp = await fetch(piece.imageUrl);
+    const blob = await resp.blob();
+    const ext = piece.fileType === "video" ? ".mp4" : ".png";
+    return { blob, fileName: piece.fileName ?? `${piece.name}${ext}` };
+  }, [videoPreset]);
+
+  const notifyVideoOptimization = useCallback((pieces: { fileType?: string }[]) => {
+    if (videoPreset !== "original" && pieces.some((p) => p.fileType === "video")) {
+      toast.info("Optimizando videos… puede tardar según su duración");
+    }
+  }, [videoPreset]);
+
   // Export functions
   const exportBannersAll = useCallback(async () => {
     const allPieces = slides.filter((s) => s.type === "pieces" && s.pieces?.length);
     if (!allPieces.length) return;
+    notifyVideoOptimization(allPieces.flatMap((s) => s.pieces ?? []));
     setExporting(true);
     setExportModalOpen(false);
     try {
@@ -1041,10 +1348,8 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
         for (const piece of s.pieces ?? []) {
           if (!piece.imageUrl) continue;
           try {
-            const resp = await fetch(piece.imageUrl);
-            const blob = await resp.blob();
-            const ext = piece.fileType === "video" ? ".mp4" : ".png";
-            folder?.file(piece.fileName ?? `${piece.name}${ext}`, blob);
+            const f = await getPieceFile(piece);
+            if (f) folder?.file(f.fileName, f.blob);
           } catch {
             // skip files that can't be fetched (e.g. CORS-restricted URLs)
           }
@@ -1062,11 +1367,12 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
     } finally {
       setExporting(false);
     }
-  }, [slides, campaign]);
+  }, [slides, campaign, getPieceFile, notifyVideoOptimization]);
 
   const exportBannersByCampaign = useCallback(async () => {
     const allPieces = slides.filter((s) => s.type === "pieces" && s.pieces?.length);
     if (!allPieces.length) return;
+    notifyVideoOptimization(allPieces.flatMap((s) => s.pieces ?? []));
     setExporting(true);
     setExportModalOpen(false);
     try {
@@ -1088,10 +1394,8 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
           for (const piece of s.pieces ?? []) {
             if (!piece.imageUrl) continue;
             try {
-              const resp = await fetch(piece.imageUrl);
-              const blob = await resp.blob();
-              const ext = piece.fileType === "video" ? ".mp4" : ".png";
-              folder?.file(piece.fileName ?? `${piece.name}${ext}`, blob);
+              const f = await getPieceFile(piece);
+              if (f) folder?.file(f.fileName, f.blob);
             } catch {
               // skip files that can't be fetched (e.g. CORS-restricted URLs)
             }
@@ -1111,11 +1415,12 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
     } finally {
       setExporting(false);
     }
-  }, [slides, campaign]);
+  }, [slides, campaign, getPieceFile, notifyVideoOptimization]);
 
   const exportBannersByChannel = useCallback(async () => {
     const allPieces = slides.filter((s) => s.type === "pieces" && s.pieces?.length);
     if (!allPieces.length) return;
+    notifyVideoOptimization(allPieces.flatMap((s) => s.pieces ?? []));
     setExporting(true);
     setExportModalOpen(false);
     try {
@@ -1137,10 +1442,8 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
           for (const piece of s.pieces ?? []) {
             if (!piece.imageUrl) continue;
             try {
-              const resp = await fetch(piece.imageUrl);
-              const blob = await resp.blob();
-              const ext = piece.fileType === "video" ? ".mp4" : ".png";
-              folder?.file(piece.fileName ?? `${piece.name}${ext}`, blob);
+              const f = await getPieceFile(piece);
+              if (f) folder?.file(f.fileName, f.blob);
             } catch {
               // skip files that can't be fetched (e.g. CORS-restricted URLs)
             }
@@ -1160,7 +1463,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
     } finally {
       setExporting(false);
     }
-  }, [slides, campaign]);
+  }, [slides, campaign, getPieceFile, notifyVideoOptimization]);
 
   const exportAsPDF = useCallback(async () => {
     setExporting(true);
@@ -1320,7 +1623,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
       y: pendingDrop.y,
       elementId: pendingDrop.elementId,
       elementLabel: pendingDrop.elementLabel,
-      authorName: authorName ?? "Anonymous",
+      authorName: authorName ?? "Anónimo",
       body,
       createdAt: Date.now(),
       resolved: false,
@@ -1343,7 +1646,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
   const addReply = useCallback((commentId: string, body: string) => {
     setComments((prev) => prev.map((c) =>
       c.id === commentId
-        ? { ...c, replies: [...c.replies, { id: `r-${Date.now()}`, authorName: authorName ?? "Anonymous", body, createdAt: Date.now() }] }
+        ? { ...c, replies: [...c.replies, { id: `r-${Date.now()}`, authorName: authorName ?? "Anónimo", body, createdAt: Date.now() }] }
         : c
     ));
   }, [authorName]);
@@ -1460,9 +1763,27 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
             onExportBannersByCampaign={exportBannersByCampaign}
             onExportBannersByChannel={exportBannersByChannel}
             onExportPDF={exportAsPDF}
+            videoPreset={videoPreset}
+            onVideoPresetChange={setVideoPreset}
           />
         )}
         {showNamePrompt && <NamePromptModal onSave={handleNameSave} />}
+        {shareOpen && (
+          <ShareModal
+            shareUrl={shareUrl}
+            access={shareAccess}
+            onAccessChange={(a) => {
+              setShareAccess(a);
+              if (a === "password") setSharePassword((p) => p || genAccessKey());
+            }}
+            password={sharePassword}
+            onPasswordChange={setSharePassword}
+            invited={invitedEmails}
+            onInvite={(em) => setInvitedEmails((l) => (l.includes(em) ? l : [...l, em]))}
+            onRemoveInvite={(em) => setInvitedEmails((l) => l.filter((x) => x !== em))}
+            onClose={() => setShareOpen(false)}
+          />
+        )}
       </AnimatePresence>
 
       {/* Piece detail overlay */}
@@ -1489,7 +1810,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
               style={{ fontSize: "13px" }}
             >
               <X size={14} />
-              Close
+              Cerrar
             </button>
             <div className="w-px h-4 bg-gray-200" />
             <div className="flex items-center gap-1.5">
@@ -1505,20 +1826,51 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Presencia — quién está viendo (como en Figma) */}
+            <div className="flex items-center mr-1">
+              {authorName && (
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold ring-2 ring-white shadow-sm"
+                  style={{ background: "#111827", fontSize: "10px", zIndex: 10 }}
+                  title={`${authorName} (tú)`}
+                >
+                  {authorName.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              {Object.entries(viewers).slice(0, 4).map(([id, v], i) => (
+                <div
+                  key={id}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-white font-semibold ring-2 ring-white shadow-sm -ml-2"
+                  style={{ background: v.color, fontSize: "10px", zIndex: 9 - i }}
+                  title={v.name}
+                >
+                  {v.name.slice(0, 2).toUpperCase()}
+                </div>
+              ))}
+              {Object.keys(viewers).length > 4 && (
+                <div className="w-7 h-7 rounded-full flex items-center justify-center bg-gray-100 text-gray-500 font-semibold ring-2 ring-white -ml-2" style={{ fontSize: "9px" }}>
+                  +{Object.keys(viewers).length - 4}
+                </div>
+              )}
+            </div>
+
             {/* Present toggle */}
             <button
               onClick={toggleViewMode}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100 cursor-pointer transition-all"
               style={{ fontSize: "12px" }}
-              title="Fullscreen presentation (F)"
+              title="Presentación a pantalla completa (F)"
             >
               <Maximize2 size={13} />
-              Present
+              Presentar
             </button>
 
-            {/* Comment mode */}
+            {/* Comentarios — un solo botón: activa el modo comentario y abre el panel */}
             <button
-              onClick={handleCommentModeToggle}
+              onClick={() => {
+                handleCommentModeToggle();
+                setCommentsOpen(!commentMode);
+              }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
                 commentMode
                   ? "bg-yellow-400 text-yellow-900 hover:bg-yellow-300"
@@ -1527,24 +1879,12 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
               style={{ fontSize: "12px", fontWeight: commentMode ? 600 : 400 }}
             >
               <MessageSquare size={13} />
-              {commentMode ? "Commenting" : "Comment"}
-            </button>
-
-            {/* Comments panel toggle */}
-            <button
-              onClick={() => setCommentsOpen((o) => !o)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
-                commentsOpen ? "bg-gray-100 text-gray-700" : "text-gray-400 hover:text-gray-700 hover:bg-gray-50"
-              }`}
-              style={{ fontSize: "12px" }}
-            >
-              <MessageSquare size={13} />
               {totalOpen > 0 && (
                 <span className="bg-yellow-400 rounded-full px-1.5" style={{ fontSize: "9px", fontWeight: 700, color: "#78350F" }}>
                   {totalOpen}
                 </span>
               )}
-              Comments
+              {commentMode ? "Comentando" : "Comentarios"}
             </button>
 
             <div className="w-px h-4 bg-gray-200" />
@@ -1557,7 +1897,17 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
               style={{ fontSize: "12px" }}
             >
               <Download size={13} />
-              {exporting ? "Exporting…" : "Export"}
+              {exporting ? "Exportando…" : "Exportar"}
+            </button>
+
+            {/* Compartir */}
+            <button
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1.5 bg-gray-900 text-white rounded-lg px-3.5 py-1.5 cursor-pointer hover:bg-gray-700 transition-all font-medium"
+              style={{ fontSize: "12px" }}
+            >
+              <Share2 size={13} />
+              Compartir
             </button>
           </div>
         </div>
@@ -1580,7 +1930,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
           </div>
 
           {/* CANVAS */}
-          <div className="flex-1 flex flex-col items-center justify-center bg-[#F1F3F4] px-10 py-8 gap-4 overflow-hidden relative">
+          <div className="flex-1 flex flex-col items-center justify-center bg-[#F1F3F4] px-5 py-3 gap-2.5 overflow-hidden relative">
             {commentMode && !pendingDrop && (
               <motion.div
                 initial={{ opacity: 0, y: -4 }}
@@ -1589,7 +1939,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
                 style={{ fontSize: "12px", fontWeight: 600, pointerEvents: "none" }}
               >
                 <MessageSquare size={12} />
-                Click anywhere on the slide to leave a comment
+                Haz clic en cualquier parte del slide para dejar un comentario
               </motion.div>
             )}
 
@@ -1600,8 +1950,8 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.99 }}
                 transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                className="relative w-full max-w-3xl shrink-0"
-                style={{ aspectRatio: "16/9" }}
+                className="relative shrink-0"
+                style={{ aspectRatio: "16/9", width: "min(100%, calc((100vh - 130px) * (16/9)))" }}
               >
                 <div
                   ref={slideRef}
@@ -1676,7 +2026,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
                 <ChevronLeft size={14} className="text-gray-600" />
               </button>
               <span className="text-gray-400" style={{ fontSize: "12px" }}>
-                {safeIndex + 1} <span className="text-gray-300">of</span> {slides.length}
+                {safeIndex + 1} <span className="text-gray-300">de</span> {slides.length}
               </span>
               <button
                 onClick={() => { setCurrent((c) => Math.min(slides.length - 1, c + 1)); setPendingDrop(null); }}
@@ -1697,7 +2047,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
           >
             <div className="w-[280px] flex flex-col h-full">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
-                <span className="text-gray-800" style={{ fontSize: "13px", fontWeight: 600 }}>Comments</span>
+                <span className="text-gray-800" style={{ fontSize: "13px", fontWeight: 600 }}>Comentarios</span>
                 <button onClick={() => setCommentsOpen(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
                   <X size={14} />
                 </button>
@@ -1713,7 +2063,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
                     }`}
                     style={{ fontSize: "11px", fontWeight: filter === tab ? 600 : 400 }}
                   >
-                    {tab}
+                    {tab === "open" ? "Abiertos" : tab === "resolved" ? "Resueltos" : "Todos"}
                   </button>
                 ))}
               </div>
@@ -1729,7 +2079,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
                   <div className="flex flex-col items-center justify-center py-10 gap-2">
                     <MessageSquare size={24} className="text-gray-200" />
                     <p className="text-gray-400 text-center" style={{ fontSize: "12px" }}>
-                      {filter === "resolved" ? "No resolved comments" : filter === "open" ? "No open comments" : "No comments yet"}
+                      {filter === "resolved" ? "No hay comentarios resueltos" : filter === "open" ? "No hay comentarios abiertos" : "Aún no hay comentarios"}
                     </p>
                     {!commentMode && filter !== "resolved" && (
                       <button
@@ -1737,7 +2087,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
                         className="text-gray-500 hover:text-gray-700 cursor-pointer underline transition-colors mt-1"
                         style={{ fontSize: "11px" }}
                       >
-                        Enable comment mode
+                        Activar modo comentario
                       </button>
                     )}
                   </div>
@@ -1760,7 +2110,7 @@ export function Frame05Presentation({ onExit, campaign }: Props) {
               {authorName && (
                 <div className="px-4 py-2.5 border-t border-gray-100 shrink-0 flex items-center justify-between">
                   <p className="text-gray-400" style={{ fontSize: "10px" }}>
-                    Commenting as <span className="text-gray-600 font-medium">{authorName}</span>
+                    Comentando como <span className="text-gray-600 font-medium">{authorName}</span>
                   </p>
                   <button
                     onClick={() => {
