@@ -1,225 +1,270 @@
-import { motion } from "motion/react";
-import { ArrowRight } from "lucide-react";
-import svgPaths from "@/imports/Logo-1/svg-kd82b58p62";
+import { useState } from "react";
+import { toast } from "sonner";
+import { Lock, Eye, EyeOff, ArrowLeft, Check } from "lucide-react";
 
 interface Props {
   onLogin: () => void;
+  onCreateAccount?: () => void;
+  onHome?: () => void;
 }
 
-// Inline dark-mode logo — white mark + "PreviewStudio" in white
-function DarkLogo() {
+const ACCENT = "#2c6bf2";
+const ERR = "#e5484d";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type Step = "login" | "email" | "code" | "reset" | "success";
+
+export function Frame01Login({ onLogin, onCreateAccount, onHome }: Props) {
+  const [step, setStep] = useState<Step>("login");
+  const [showPass, setShowPass] = useState(false);
+
+  // login fields
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+
+  // recovery
+  const [recEmail, setRecEmail] = useState("");
+  const [recErr, setRecErr] = useState("");
+  const [sentCode, setSentCode] = useState("");
+  const [code, setCode] = useState("");
+  const [codeErr, setCodeErr] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [confirmPass, setConfirmPass] = useState("");
+  const [resetErr, setResetErr] = useState<{ p?: string; c?: string }>({});
+
+  const inputBox = (hasErr: boolean) => ({ background: "#fff", border: `1px solid ${hasErr ? ERR : "#E3E6EB"}` });
+
+  // ── handlers ──
+  const handleLogin = () => {
+    const e: typeof errors = {};
+    if (!email.trim()) e.email = "Ingresa tu correo.";
+    else if (!EMAIL_RE.test(email.trim())) e.email = "El correo no es válido.";
+    if (!password) e.password = "Ingresa tu contraseña.";
+    else if (password.length < 6) e.password = "La contraseña debe tener al menos 6 caracteres.";
+    setErrors(e);
+    if (Object.keys(e).length === 0) onLogin();
+  };
+
+  const sendCode = () => {
+    if (!recEmail.trim()) { setRecErr("Ingresa tu correo."); return; }
+    if (!EMAIL_RE.test(recEmail.trim())) { setRecErr("El correo no es válido."); return; }
+    const generated = String(Math.floor(100000 + Math.random() * 900000));
+    setSentCode(generated);
+    setRecErr("");
+    setCode("");
+    setStep("code");
+    toast.success(`Código enviado a ${recEmail}`, { description: `Demo: tu código es ${generated}`, duration: 8000 });
+  };
+
+  const verifyCode = () => {
+    if (code.length !== 6) { setCodeErr("Ingresa el código de 6 dígitos."); return; }
+    if (code !== sentCode) { setCodeErr("El código es incorrecto."); return; }
+    setCodeErr("");
+    setStep("reset");
+  };
+
+  const saveNewPass = () => {
+    const e: typeof resetErr = {};
+    if (!newPass) e.p = "Crea una contraseña.";
+    else if (newPass.length < 6) e.p = "La contraseña debe tener al menos 6 caracteres.";
+    if (confirmPass !== newPass) e.c = "Las contraseñas no coinciden.";
+    setResetErr(e);
+    if (Object.keys(e).length === 0) setStep("success");
+  };
+
+  const backToLogin = () => {
+    setStep("login"); setRecEmail(""); setCode(""); setSentCode(""); setNewPass(""); setConfirmPass("");
+    setRecErr(""); setCodeErr(""); setResetErr({});
+  };
+
   return (
-    <div className="flex items-center gap-[14px]">
-      {/* Icon container */}
-      <div
-        className="flex items-center justify-center rounded-[8px] shrink-0"
-        style={{
-          width: 38,
-          height: 38,
-          background: "linear-gradient(135deg, #1C1C1C 0%, #252525 100%)",
-          border: "1px solid #2E2E2E",
-          boxShadow: "0 0 0 1px rgba(255,255,255,0.04) inset",
-        }}
-      >
-        <svg width="21" height="17" viewBox="0 0 20.5018 16.4014" fill="none">
-          <path d={svgPaths.pfc8bc00} fill="white" />
-          <path d={svgPaths.p2c9417f2} fill="white" />
-        </svg>
-      </div>
-      {/* Wordmark */}
-      <span
-        className="font-semibold tracking-[-0.8px] whitespace-nowrap"
-        style={{ fontSize: 22, color: "#F9FAFB", fontFamily: "Inter, sans-serif" }}
-      >
-        PreviewStudio
-      </span>
-    </div>
-  );
-}
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bacalar:wght@100..900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+        .ls-body { font-family: 'Roboto', sans-serif; }
+        .ls-display { font-family: 'Bacalar', sans-serif; font-weight: 900; text-transform: uppercase; letter-spacing: 0.02em; }
+        .ls-input::placeholder { color: #9aa3b2; }
+        .ls-sso { transition: all 0.2s ease; cursor: pointer; }
+        .ls-sso:hover { background: #f7f8fa !important; border-color: #c8cdd6 !important; }
+        .ls-primary { transition: all 0.25s cubic-bezier(0.22,1,0.36,1); cursor: pointer; }
+        .ls-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(44,107,242,0.4); }
+      `}</style>
 
-// Tiled background texture built from the logo mark paths
-function LogoTexture() {
-  // Place logo marks in a loose grid across the panel — various sizes & rotations
-  const marks = [
-    { x: -30,  y: -20,  scale: 7,   rotate: 0,   opacity: 0.045 },
-    { x: 180,  y: 80,   scale: 4.5, rotate: 15,  opacity: 0.03  },
-    { x: 340,  y: -40,  scale: 9,   rotate: -8,  opacity: 0.025 },
-    { x: 60,   y: 200,  scale: 5.5, rotate: 5,   opacity: 0.035 },
-    { x: 260,  y: 220,  scale: 3.5, rotate: -20, opacity: 0.04  },
-    { x: 420,  y: 160,  scale: 6,   rotate: 10,  opacity: 0.03  },
-    { x: 100,  y: 380,  scale: 8,   rotate: -5,  opacity: 0.025 },
-    { x: 310,  y: 380,  scale: 4,   rotate: 18,  opacity: 0.035 },
-    { x: 480,  y: 340,  scale: 5,   rotate: -12, opacity: 0.03  },
-    { x: -20,  y: 500,  scale: 6.5, rotate: 8,   opacity: 0.025 },
-    { x: 220,  y: 520,  scale: 3,   rotate: -3,  opacity: 0.04  },
-    { x: 420,  y: 500,  scale: 7.5, rotate: 22,  opacity: 0.03  },
-  ];
+      <div className="ls-body relative h-screen w-full overflow-hidden flex" style={{ background: "#ffffff" }}>
 
-  return (
-    <svg
-      className="absolute inset-0 w-full h-full pointer-events-none"
-      xmlns="http://www.w3.org/2000/svg"
-      preserveAspectRatio="xMidYMid slice"
-    >
-      {marks.map((m, i) => {
-        const w = 20.5018 * m.scale;
-        const h = 16.4014 * m.scale;
-        return (
-          <g
-            key={i}
-            transform={`translate(${m.x + w / 2}, ${m.y + h / 2}) rotate(${m.rotate}) translate(${-w / 2}, ${-h / 2})`}
-            opacity={m.opacity}
-          >
-            <svg
-              x={0}
-              y={0}
-              width={w}
-              height={h}
-              viewBox="0 0 20.5018 16.4014"
-              fill="none"
-              overflow="visible"
-            >
-              <path d={svgPaths.pfc8bc00} fill="white" />
-              <path d={svgPaths.p2c9417f2} fill="white" />
-            </svg>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
+        {/* ════ LEFT — dark card with mockup ════ */}
+        <div className="hidden lg:block w-1/2 p-3">
+          <div className="relative h-full rounded-[28px] overflow-hidden flex flex-col" style={{ background: "#030208" }}>
+            <div className="absolute inset-0 pointer-events-none" style={{
+              backgroundImage: "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
+              backgroundSize: "56px 56px",
+              maskImage: "radial-gradient(ellipse 90% 60% at 50% 30%, #000 20%, transparent 80%)",
+              WebkitMaskImage: "radial-gradient(ellipse 90% 60% at 50% 30%, #000 20%, transparent 80%)",
+            }} />
+            <div className="absolute pointer-events-none" style={{ bottom: "-15%", left: "50%", transform: "translateX(-50%)", width: 600, height: 500, background: "radial-gradient(circle, rgba(44,107,242,0.22) 0%, transparent 65%)", filter: "blur(70px)" }} />
 
-export function Frame01Login({ onLogin }: Props) {
-  return (
-    <div className="relative h-screen w-full overflow-hidden" style={{ background: "#0B0B0B" }}>
-      {/* LEFT SIDE */}
-      <motion.div
-        initial={{ opacity: 0, x: -24 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute inset-y-0 left-0 w-1/2 overflow-hidden"
-        style={{ background: "#111111", borderRight: "1px solid #1C1C1C" }}
-      >
-        {/* Subtle logo-shape texture */}
-        <LogoTexture />
-
-        {/* Brand mark — main focus */}
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2, duration: 0.6 }}
-          className="absolute top-[52px] left-[64px]"
-        >
-          <DarkLogo />
-        </motion.div>
-
-        {/* Headline */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.6 }}
-          className="absolute bottom-[56px] left-[64px] right-[64px]"
-        >
-          <p style={{ color: "#F3F4F6" }} className="mb-4 text-[28px] font-semibold leading-[35px] tracking-[-0.22px]">
-            Turn campaign assets into<br />client-ready previews instantly.
-          </p>
-          <p style={{ color: "#6B7280" }} className="text-[14px] leading-[22.4px] tracking-[-0.15px]">
-            Automated layout detection, smart grouping, and<br />one-click sharing — all in one workspace.
-          </p>
-        </motion.div>
-      </motion.div>
-
-      {/* RIGHT SIDE */}
-      <motion.div
-        initial={{ opacity: 0, x: 24 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute inset-y-0 left-1/2 w-1/2 flex flex-col items-center justify-center"
-        style={{ background: "#0D0D0D" }}
-      >
-        <div className="flex flex-col gap-[34px]">
-          {/* Login header */}
-          <div className="flex flex-col gap-[9px] w-[368px]">
-            <h2 style={{ color: "#F9FAFB" }} className="text-[23px] font-semibold leading-[34.53px] tracking-[-0.98px]">
-              Welcome back
-            </h2>
-            <p style={{ color: "#9CA3AF" }} className="text-[15px] leading-[22.44px] tracking-[-0.09px]">
-              Sign in with your company account to continue.
-            </p>
-          </div>
-
-          {/* SSO Button — gradient preserved */}
-          <motion.button
-            whileHover={{
-              scale: 1.02,
-              y: -2,
-              boxShadow: "0 8px 24px rgba(226, 62, 130, 0.3)",
-            }}
-            whileTap={{ scale: 0.98 }}
-            onClick={onLogin}
-            className="w-[368px] h-[56px] flex items-center justify-between text-white rounded-[16px] px-[23px] py-[16px] cursor-pointer"
-            style={{ backgroundImage: "linear-gradient(90deg, rgb(226, 62, 130) 2.4701%, rgb(103, 21, 175) 32.022%, rgb(103, 21, 175) 69.429%, rgb(75, 200, 240) 98.578%)" }}
-          >
-            <span className="text-[16px] font-medium tracking-[-0.17px]">Continue with SSO</span>
-            <ArrowRight size={17} />
-          </motion.button>
-
-          {/* Divider */}
-          <div className="flex items-center gap-[6px] w-[368px]">
-            <div className="flex-1 h-px" style={{ background: "#1F1F1F" }} />
-            <span style={{ color: "#4B5563" }} className="text-[12px] tracking-[0.07px]">or</span>
-            <div className="flex-1 h-px" style={{ background: "#1F1F1F" }} />
-          </div>
-
-          {/* Email section */}
-          <div className="flex flex-col gap-[14px] w-[368px]">
-            <div
-              className="w-full h-[54px] rounded-[16px] px-[18px] flex items-center transition-colors duration-200"
-              style={{ background: "#161616", border: "1px solid #262626" }}
-            >
-              <input
-                type="email"
-                placeholder="Work email address"
-                className="flex-1 bg-transparent outline-none text-[16px] tracking-[-0.17px]"
-                style={{ color: "#F9FAFB", caretColor: "#F9FAFB" }}
-                onFocus={(e) => ((e.currentTarget.parentElement as HTMLElement).style.borderColor = "#374151")}
-                onBlur={(e) => ((e.currentTarget.parentElement as HTMLElement).style.borderColor = "#262626")}
-              />
+            <div className="relative flex-1 flex items-center justify-center p-10">
+              <div className="w-full rounded-2xl overflow-hidden" style={{ maxWidth: 460, background: "#0e1018", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 40px 80px rgba(0,0,0,0.45)" }}>
+                <div className="flex items-center justify-between p-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div>
+                    <p className="text-white text-[13px] font-semibold leading-tight">Spring Launch 2026</p>
+                    <p className="text-[10px] mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>Nike · 12 assets · Ronda 2</p>
+                  </div>
+                  <div className="h-7 px-3 rounded-md flex items-center" style={{ background: ACCENT }}><span className="text-white text-[10px] font-medium">Compartir</span></div>
+                </div>
+                <div className="grid grid-cols-4 gap-2.5 p-4">
+                  {["#aec4ff","#cdd6e6","#5b7cf0","#2c6bf2"].map((c, i) => {
+                    const st = ["ok","ok","wait","edit"][i];
+                    return (
+                      <div key={i} className="rounded-lg overflow-hidden" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                        <div className="h-16 relative" style={{ background: `linear-gradient(135deg, ${c}, rgba(255,255,255,0.04))` }}>
+                          <div className="absolute top-1.5 right-1.5 rounded-full" style={{ width: 15, height: 15, background: st === "ok" ? "#00C566" : st === "wait" ? "rgba(255,255,255,0.25)" : "#FFB020", border: "1.5px solid rgba(255,255,255,0.6)" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="px-4 pb-4">
+                  <div className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <p className="text-[10px] font-medium mb-2.5" style={{ color: "rgba(255,255,255,0.6)" }}>Comentarios del cliente</p>
+                    {[{ a: true, t: "¡Me encanta el nuevo banner! Aprobado." }, { a: false, t: "¿Podemos agrandar el logo?" }].map((m, i) => (
+                      <div key={i} className="flex items-center gap-2 mb-2 last:mb-0">
+                        <div className="w-5 h-5 rounded-full shrink-0" style={{ background: m.a ? ACCENT : "rgba(255,255,255,0.25)" }} />
+                        <div className="rounded-md px-2.5 py-1.5" style={{ background: "rgba(255,255,255,0.05)" }}><span className="text-[10px]" style={{ color: "rgba(255,255,255,0.7)" }}>{m.t}</span></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-            <style>{`input[type="email"]::placeholder { color: #4B5563; }`}</style>
-            <button
-              onClick={onLogin}
-              className="w-full h-[54px] rounded-[16px] text-[14px] font-medium cursor-pointer transition-all duration-200"
-              style={{ background: "#161616", border: "1px solid #262626", color: "#D1D5DB" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#1C1C1C";
-                e.currentTarget.style.borderColor = "#3F3F46";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#161616";
-                e.currentTarget.style.borderColor = "#262626";
-              }}
-            >
-              Continue with email
-            </button>
-          </div>
-
-          {/* Security + Terms */}
-          <div className="flex flex-col gap-[8px] w-[368px]">
-            <div className="flex items-center gap-[9px]">
-              <div className="w-2 h-2 rounded-full shrink-0" style={{ background: "#374151" }} />
-              <p style={{ color: "#6B7280" }} className="text-[12px] leading-[18.99px] tracking-[0.07px]">
-                Enterprise SSO · SOC 2 Type II · End-to-end encrypted
-              </p>
-            </div>
-            <p style={{ color: "#4B5563" }} className="text-[11px]">
-              By continuing, you agree to our{" "}
-              <span style={{ color: "#6B7280" }} className="underline cursor-pointer">Terms</span> and{" "}
-              <span style={{ color: "#6B7280" }} className="underline cursor-pointer">Privacy Policy</span>.
-            </p>
           </div>
         </div>
-      </motion.div>
-    </div>
+
+        {/* ════ RIGHT — form ════ */}
+        <div className="relative flex-1 flex flex-col items-center justify-center px-6">
+          <div className="flex flex-col w-full" style={{ maxWidth: 380 }}>
+            {/* logo */}
+            <div onClick={onHome} className="flex items-center gap-3 justify-center mb-8 cursor-pointer">
+              <img src="/ocx-logo.png" alt="OCX" style={{ height: 22, width: "auto", filter: "invert(1)" }} />
+              <div className="h-6 w-px" style={{ background: "rgba(0,0,0,0.15)" }} />
+              <span className="text-[18px] font-medium tracking-tight" style={{ color: "#0d1117" }}>View Studio</span>
+            </div>
+
+            {/* ─────── LOGIN ─────── */}
+            {step === "login" && (
+              <>
+                <h1 className="text-center font-semibold mb-8" style={{ fontSize: 26, color: "#0d1117", letterSpacing: "-0.01em" }}>Inicia sesión en tu cuenta</h1>
+                <button onClick={onLogin} className="ls-sso w-full h-[48px] rounded-xl flex items-center justify-center gap-2.5 text-[14px] font-medium mb-6" style={{ background: "#fff", border: "1px solid #E3E6EB", color: "#0d1117" }}>
+                  <Lock size={15} /> Continuar con SSO
+                </button>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="flex-1 h-px" style={{ background: "#E3E6EB" }} /><span className="text-[12px]" style={{ color: "#9aa3b2" }}>o</span><div className="flex-1 h-px" style={{ background: "#E3E6EB" }} />
+                </div>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <div className="w-full h-[50px] rounded-xl px-4 flex items-center" style={inputBox(!!errors.email)}>
+                      <input type="email" value={email} placeholder="Correo laboral" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
+                        onChange={(e) => { setEmail(e.target.value); if (errors.email) setErrors((p) => ({ ...p, email: undefined })); }}
+                        onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
+                    </div>
+                    {errors.email && <p className="text-[12px] mt-1.5 ml-1" style={{ color: ERR }}>{errors.email}</p>}
+                  </div>
+                  <div>
+                    <div className="w-full h-[50px] rounded-xl px-4 flex items-center gap-2" style={inputBox(!!errors.password)}>
+                      <input type={showPass ? "text" : "password"} value={password} placeholder="Contraseña" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
+                        onChange={(e) => { setPassword(e.target.value); if (errors.password) setErrors((p) => ({ ...p, password: undefined })); }}
+                        onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
+                      <button onClick={() => setShowPass(!showPass)} className="cursor-pointer" style={{ color: "#9aa3b2" }}>{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                    </div>
+                    {errors.password && <p className="text-[12px] mt-1.5 ml-1" style={{ color: ERR }}>{errors.password}</p>}
+                  </div>
+                </div>
+                <span onClick={() => setStep("email")} className="text-[13px] font-medium mt-3 cursor-pointer w-fit" style={{ color: ACCENT }}>¿Olvidaste tu contraseña?</span>
+                <button onClick={handleLogin} className="ls-primary w-full h-[50px] rounded-xl text-[15px] font-semibold mt-5 text-white" style={{ background: ACCENT }}>Continuar</button>
+                <p className="text-[13px] text-center mt-6" style={{ color: "#5b6473" }}>¿No tienes cuenta? <span onClick={onCreateAccount} className="cursor-pointer font-medium" style={{ color: ACCENT }}>Crear cuenta</span></p>
+              </>
+            )}
+
+            {/* ─────── FORGOT: EMAIL ─────── */}
+            {step === "email" && (
+              <>
+                <h1 className="text-center font-semibold mb-2" style={{ fontSize: 24, color: "#0d1117", letterSpacing: "-0.01em" }}>Recuperar contraseña</h1>
+                <p className="text-center text-[14px] mb-8" style={{ color: "#5b6473" }}>Ingresa tu correo y te enviaremos un código de verificación.</p>
+                <div>
+                  <div className="w-full h-[50px] rounded-xl px-4 flex items-center" style={inputBox(!!recErr)}>
+                    <input type="email" value={recEmail} placeholder="Correo laboral" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
+                      onChange={(e) => { setRecEmail(e.target.value); if (recErr) setRecErr(""); }}
+                      onKeyDown={(e) => e.key === "Enter" && sendCode()} />
+                  </div>
+                  {recErr && <p className="text-[12px] mt-1.5 ml-1" style={{ color: ERR }}>{recErr}</p>}
+                </div>
+                <button onClick={sendCode} className="ls-primary w-full h-[50px] rounded-xl text-[15px] font-semibold mt-5 text-white" style={{ background: ACCENT }}>Enviar código</button>
+                <button onClick={backToLogin} className="flex items-center justify-center gap-1.5 text-[13px] font-medium mt-6 cursor-pointer" style={{ color: "#5b6473" }}><ArrowLeft size={14} /> Volver a iniciar sesión</button>
+              </>
+            )}
+
+            {/* ─────── FORGOT: CODE ─────── */}
+            {step === "code" && (
+              <>
+                <h1 className="text-center font-semibold mb-2" style={{ fontSize: 24, color: "#0d1117", letterSpacing: "-0.01em" }}>Ingresa el código</h1>
+                <p className="text-center text-[14px] mb-8" style={{ color: "#5b6473" }}>Enviamos un código de 6 dígitos a <span className="font-medium" style={{ color: "#0d1117" }}>{recEmail}</span>.</p>
+                <div>
+                  <div className="w-full h-[50px] rounded-xl px-4 flex items-center" style={inputBox(!!codeErr)}>
+                    <input inputMode="numeric" maxLength={6} value={code} placeholder="••••••" className="ls-input flex-1 bg-transparent outline-none text-[18px] tracking-[0.4em] text-center" style={{ color: "#0d1117", caretColor: ACCENT }}
+                      onChange={(e) => { setCode(e.target.value.replace(/\D/g, "")); if (codeErr) setCodeErr(""); }}
+                      onKeyDown={(e) => e.key === "Enter" && verifyCode()} />
+                  </div>
+                  {codeErr && <p className="text-[12px] mt-1.5 ml-1" style={{ color: ERR }}>{codeErr}</p>}
+                </div>
+                <button onClick={verifyCode} className="ls-primary w-full h-[50px] rounded-xl text-[15px] font-semibold mt-5 text-white" style={{ background: ACCENT }}>Verificar</button>
+                <p className="text-[13px] text-center mt-5" style={{ color: "#5b6473" }}>¿No te llegó? <span onClick={sendCode} className="cursor-pointer font-medium" style={{ color: ACCENT }}>Reenviar código</span></p>
+                <button onClick={backToLogin} className="flex items-center justify-center gap-1.5 text-[13px] font-medium mt-4 cursor-pointer" style={{ color: "#5b6473" }}><ArrowLeft size={14} /> Volver a iniciar sesión</button>
+              </>
+            )}
+
+            {/* ─────── FORGOT: RESET ─────── */}
+            {step === "reset" && (
+              <>
+                <h1 className="text-center font-semibold mb-2" style={{ fontSize: 24, color: "#0d1117", letterSpacing: "-0.01em" }}>Nueva contraseña</h1>
+                <p className="text-center text-[14px] mb-8" style={{ color: "#5b6473" }}>Crea una contraseña nueva para tu cuenta.</p>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <div className="w-full h-[50px] rounded-xl px-4 flex items-center gap-2" style={inputBox(!!resetErr.p)}>
+                      <input type={showPass ? "text" : "password"} value={newPass} placeholder="Nueva contraseña" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
+                        onChange={(e) => { setNewPass(e.target.value); if (resetErr.p) setResetErr((p) => ({ ...p, p: undefined })); }} />
+                      <button onClick={() => setShowPass(!showPass)} className="cursor-pointer" style={{ color: "#9aa3b2" }}>{showPass ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                    </div>
+                    {resetErr.p && <p className="text-[12px] mt-1.5 ml-1" style={{ color: ERR }}>{resetErr.p}</p>}
+                  </div>
+                  <div>
+                    <div className="w-full h-[50px] rounded-xl px-4 flex items-center" style={inputBox(!!resetErr.c)}>
+                      <input type={showPass ? "text" : "password"} value={confirmPass} placeholder="Confirmar contraseña" className="ls-input flex-1 bg-transparent outline-none text-[14px]" style={{ color: "#0d1117", caretColor: ACCENT }}
+                        onChange={(e) => { setConfirmPass(e.target.value); if (resetErr.c) setResetErr((p) => ({ ...p, c: undefined })); }}
+                        onKeyDown={(e) => e.key === "Enter" && saveNewPass()} />
+                    </div>
+                    {resetErr.c && <p className="text-[12px] mt-1.5 ml-1" style={{ color: ERR }}>{resetErr.c}</p>}
+                  </div>
+                </div>
+                <button onClick={saveNewPass} className="ls-primary w-full h-[50px] rounded-xl text-[15px] font-semibold mt-5 text-white" style={{ background: ACCENT }}>Guardar contraseña</button>
+              </>
+            )}
+
+            {/* ─────── SUCCESS ─────── */}
+            {step === "success" && (
+              <div className="flex flex-col items-center text-center">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-5" style={{ background: "rgba(0,197,102,0.12)", border: "1px solid rgba(0,197,102,0.4)" }}>
+                  <Check size={26} style={{ color: "#00C566" }} />
+                </div>
+                <h1 className="font-semibold mb-2" style={{ fontSize: 24, color: "#0d1117" }}>¡Contraseña actualizada!</h1>
+                <p className="text-[14px] mb-8" style={{ color: "#5b6473", maxWidth: 300 }}>Tu contraseña se cambió correctamente. Ya puedes iniciar sesión.</p>
+                <button onClick={backToLogin} className="ls-primary w-full h-[50px] rounded-xl text-[15px] font-semibold text-white" style={{ background: ACCENT }}>Volver a iniciar sesión</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

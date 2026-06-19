@@ -3,9 +3,12 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ArrowLeft, ChevronRight, ChevronDown, ChevronLeft, Eye, RotateCcw,
   Plus, Minus, Menu, X, LayoutGrid, Folder, Settings, HelpCircle,
-  Zap, Copy, Trash2, ArrowUpDown, Upload, FolderOpen,
+  Zap, Copy, Trash2, ArrowUpDown, Upload, FolderOpen, Sun, Moon,
 } from "lucide-react";
 import type { CampaignState } from "../App";
+import { HtmlBannerFrame } from "./HtmlBannerFrame";
+import { CoverSlide, CoverTemplateMini, COVER_TEMPLATES, COVER_COLORS } from "./CoverSlide";
+import { MetaAdCard, EMPTY_AD_COPY } from "./MetaAdCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,7 +21,7 @@ interface Piece {
   legal: string;
   title: string;
   imageUrl?: string;
-  fileType?: "image" | "video";
+  fileType?: "image" | "video" | "html";
   fileName?: string;
 }
 
@@ -40,6 +43,7 @@ interface Props {
   onBack: () => void;
   onPresent: () => void;
   campaign: CampaignState;
+  onUpdate: (updates: Partial<CampaignState>) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -118,13 +122,23 @@ function makePiece(file: File, w: number, h: number, brand: string): Piece {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
+export function Frame04PreviewBuilder({ onBack, onPresent, campaign, onUpdate }: Props) {
   // Single source of truth: subCampaign ("" = flat/no sub-campaign) → platform → pieces
   const [subCampaignGroups, setSubCampaignGroups] = useState<Record<string, Record<string, Piece[]>>>({});
   // Intro text keyed by introKey(sub, platform)
   const [introData, setIntroData] = useState<Record<string, { title: string; subtitle: string }>>({});
   const [piecesData, setPiecesData] = useState<Record<string, PieceEdit>>({});
   const [slideLegals, setSlideLegals] = useState<Record<string, { legal: string; brand: string }>>({});
+  const [adCopyData, setAdCopyData] = useState<Record<string, { copy: string; headline: string; subtext: string }>>({});
+  // AR real medido del archivo (el AR declarado puede venir mal del nombre del archivo y recortar la pieza)
+  const [measuredAr, setMeasuredAr] = useState<Record<string, number>>({});
+
+  const reportMediaSize = (pieceId: string, w: number, h: number, declaredAr: number) => {
+    if (!w || !h) return;
+    const real = w / h;
+    if (Math.abs(real - declaredAr) < 0.02) return;
+    setMeasuredAr((m) => (m[pieceId] ? m : { ...m, [pieceId]: real }));
+  };
 
   const [selectedId, setSelectedId] = useState<string>("cover");
   const [direction, setDirection] = useState(1);
@@ -136,6 +150,7 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
   const [hoveredPieceId, setHoveredPieceId] = useState<string | null>(null);
   const [titleEditing, setTitleEditing] = useState<Record<string, boolean>>({});
   const [propsOpen, setPropsOpen] = useState(true);
+  const [dark, setDark] = useState(false);
   const [newPlatformPrompt, setNewPlatformPrompt] = useState<{
     newPlatforms: string[];
     grouped: Record<string, Piece[]>;
@@ -215,6 +230,24 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
 
   // Seed from campaign data on mount
   useEffect(() => {
+    // si ya hay estado del builder persistido (ej. volviendo de la presentación), restaurarlo
+    const bs = campaign.builderState;
+    if (bs && Object.keys(bs.groups).length > 0) {
+      setSubCampaignGroups(bs.groups as Record<string, Record<string, Piece[]>>);
+      setIntroData(bs.introData);
+      setPiecesData(bs.piecesData);
+      setSlideLegals(bs.slideLegals);
+      setAdCopyData(bs.adCopyData);
+      setMeasuredAr(bs.measuredAr);
+      const restored = new Set<string>();
+      Object.entries(bs.groups).forEach(([sub, platforms]) => {
+        restored.add(subExpandKey(sub));
+        Object.keys(platforms).forEach((p) => restored.add(platExpandKey(sub, p)));
+      });
+      setExpanded(restored);
+      return;
+    }
+
     const hasGroups = Object.keys(campaign.uploadedGroups ?? {}).length > 0;
     const hasPlatforms = campaign.uploadedPlatforms.length > 0;
     if (!hasGroups && !hasPlatforms) return;
@@ -252,6 +285,12 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Persistir el estado editable hacia App para que la Presentación muestre lo mismo
+  useEffect(() => {
+    onUpdate({ builderState: { groups: subCampaignGroups, introData, piecesData, slideLegals, adCopyData, measuredAr } });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subCampaignGroups, introData, piecesData, slideLegals, adCopyData, measuredAr]);
+
   const slide = slides.find((s) => s.id === selectedId) ?? slides[0];
   const slideIndex = slides.findIndex((s) => s.id === selectedId);
 
@@ -276,6 +315,9 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
 
   const updatePiece = (pid: string, u: PieceEdit) =>
     setPiecesData((prev) => ({ ...prev, [pid]: { ...prev[pid], ...u } }));
+
+  const updateAdCopy = (pid: string, u: Partial<{ copy: string; headline: string; subtext: string }>) =>
+    setAdCopyData((prev) => ({ ...prev, [pid]: { copy: "", headline: "", subtext: "", ...prev[pid], ...u } }));
 
   const updateSlideLegal = (slideId: string, u: Partial<{ legal: string; brand: string }>) =>
     setSlideLegals((prev) => ({ ...prev, [slideId]: { ...prev[slideId], ...u } }));
@@ -391,38 +433,8 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
   // ── Slide renderers ────────────────────────────────────────────────────
 
   const renderCover = () => (
-    <div className="absolute inset-0 p-10 flex flex-col">
-      <div className="flex items-center gap-2">
-        {campaign.logoUrl ? (
-          <img src={campaign.logoUrl} alt="logo" className="h-7 object-contain" />
-        ) : (
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-md bg-gray-900 flex items-center justify-center shrink-0">
-              <svg width="11" height="9" viewBox="0 0 12.9104 10.3283" fill="none">
-                <path d="M12.799 0.211896V8.32163H6.49027V6.51912H10.9965V2.0144H1.98553V0.211896H12.799Z" fill="white" />
-                <path d="M6.49032 8.32165V10.1241H0.183076V2.0144H1.98558V8.32165H6.49032Z" fill="white" />
-              </svg>
-            </div>
-            <span className="text-gray-900 font-semibold tracking-tight" style={{ fontSize: "13px" }}>VisionStudio</span>
-          </div>
-        )}
-      </div>
-      <div className="mt-auto">
-        <div className="h-px bg-gray-200 mb-7" />
-        <h1
-          className="leading-none mb-4"
-          style={{ fontSize: "38px", fontWeight: 700, letterSpacing: "-0.5px", color: campaign.brandColor || "#111827" }}
-        >
-          {campaign.campaignName}
-        </h1>
-        <div className="flex items-center gap-3">
-          <span className="text-gray-400" style={{ fontSize: "13px" }}>{campaign.clientName}</span>
-          <span className="text-gray-200">·</span>
-          <span className="text-gray-400" style={{ fontSize: "13px" }}>{campaign.reviewRound}</span>
-          <span className="text-gray-200">·</span>
-          <span className="text-gray-400" style={{ fontSize: "13px" }}>{campaign.shippingDate}</span>
-        </div>
-      </div>
+    <div className="absolute inset-0">
+      <CoverSlide campaign={campaign} />
     </div>
   );
 
@@ -463,15 +475,32 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
     );
   };
 
+  const renderMetaMockup = (piece: Piece, name: string, removeBtn: React.ReactNode) => (
+    <MetaAdCard
+      imageUrl={piece.imageUrl}
+      fileType={piece.fileType}
+      name={name}
+      ar={measuredAr[piece.id] ?? piece.ar}
+      ad={adCopyData[piece.id] ?? EMPTY_AD_COPY}
+      brandName={campaign.clientName}
+      logoUrl={campaign.logoUrl}
+      editable
+      onAdChange={(u) => updateAdCopy(piece.id, u)}
+      onMediaSize={(w, h) => reportMediaSize(piece.id, w, h, piece.ar)}
+      removeBtn={removeBtn}
+    />
+  );
+
   const renderPieces = (s: Slide) => {
     const pieces = s.pieces ?? [];
+    const isMeta = s.platform === "Meta";
     const cols = pieces.length <= 1 ? 1 : pieces.length === 2 ? 2 : 3;
     const sl = slideLegals[s.id] ?? { legal: LEGAL, brand: "—" };
 
     return (
       <div className="absolute inset-0 flex">
         {/* LEFT — Legal, single block per slide */}
-        <div className="border-r border-gray-100 p-3 flex flex-col gap-3 overflow-y-auto shrink-0" style={{ width: "28%" }}>
+        <div className="p-3 flex flex-col gap-2 overflow-y-auto shrink-0" style={{ width: "20%", borderRight: "1px solid #f3f4f6" }}>
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: s.platformColor }} />
             <span className="text-gray-400 font-semibold tracking-widest uppercase" style={{ fontSize: "8px" }}>
@@ -508,100 +537,121 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
         <div className="flex-1 flex flex-col overflow-hidden p-3">
           <div
             className="flex-1 grid min-h-0"
-            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: "10px" }}
+            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: "minmax(0, 1fr)", gap: "10px" }}
           >
             {pieces.map((piece) => {
               const pd = piecesData[piece.id] ?? {};
               const name = pd.name ?? piece.name;
+              const ar = measuredAr[piece.id] ?? piece.ar;
+              // mockup de feed solo para Collection/Post (cuadrado u horizontal);
+              // historias (vertical) y videos/YouTube se muestran tal cual
+              const useMockup = isMeta && piece.fileType !== "video" && ar >= 0.9;
               const pieceTitle = pd.title ?? piece.title;
               const showTitleField = !!pieceTitle || !!titleEditing[piece.id];
+
+              const removeBtn = (
+                <AnimatePresence>
+                  {hoveredPieceId === piece.id && (
+                    <motion.button
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      transition={{ duration: 0.12 }}
+                      onClick={() => removePiece(s.subCampaign ?? "", s.platform!, piece.id)}
+                      className="absolute top-1.5 right-1.5 z-10 w-5 h-5 bg-white rounded-full shadow border border-gray-200 flex items-center justify-center cursor-pointer text-gray-400 hover:text-red-500 hover:border-red-200 transition-colors"
+                    >
+                      <Trash2 size={9} />
+                    </motion.button>
+                  )}
+                </AnimatePresence>
+              );
 
               return (
                 <div
                   key={piece.id}
-                  className="flex flex-col gap-1 min-h-0 relative"
+                  className="flex flex-col gap-1 relative min-h-0"
                   onMouseEnter={() => setHoveredPieceId(piece.id)}
                   onMouseLeave={() => setHoveredPieceId(null)}
                 >
-                  <input
-                    value={name ?? ""}
-                    onChange={(e) => updatePiece(piece.id, { name: e.target.value })}
-                    className="text-gray-400 bg-transparent outline-none border-b border-transparent focus:border-gray-200 w-full transition-colors shrink-0"
-                    style={{ fontSize: "7px", fontFamily: "monospace" }}
-                  />
-
-                  <div className="flex-1 relative min-h-0">
-                    <AnimatePresence>
-                      {hoveredPieceId === piece.id && (
-                        <motion.button
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.8 }}
-                          transition={{ duration: 0.12 }}
-                          onClick={() => removePiece(s.subCampaign ?? "", s.platform!, piece.id)}
-                          className="absolute top-1.5 right-1.5 z-10 w-5 h-5 bg-white rounded-full shadow border border-gray-200 flex items-center justify-center cursor-pointer text-gray-400 hover:text-red-500 hover:border-red-200 transition-colors"
-                        >
-                          <Trash2 size={9} />
-                        </motion.button>
-                      )}
-                    </AnimatePresence>
-                    {piece.fileType === "video" && piece.imageUrl ? (
-                      <video
-                        src={piece.imageUrl}
-                        className="absolute inset-0 w-full h-full object-contain"
-                        preload="metadata"
-                        muted
-                        playsInline
-                      />
-                    ) : piece.imageUrl ? (
-                      <img
-                        src={piece.imageUrl}
-                        alt={name}
-                        className="absolute inset-0 w-full h-full object-contain"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-center">
-                        <div className="w-8 h-4 rounded bg-gray-200 opacity-60" />
+                  {useMockup ? (
+                    renderMetaMockup(piece, name, removeBtn)
+                  ) : (
+                    <>
+                      <div className="relative w-full min-h-0" style={{ aspectRatio: String(ar), flex: "0 1 auto" }}>
+                        {removeBtn}
+                        {piece.fileType === "html" && piece.imageUrl ? (
+                          <HtmlBannerFrame
+                            src={piece.imageUrl}
+                            title={name}
+                            className="absolute inset-0"
+                            style={{ width: "100%", height: "100%", pointerEvents: "none" }}
+                          />
+                        ) : piece.fileType === "video" && piece.imageUrl ? (
+                          <video
+                            src={piece.imageUrl}
+                            className="absolute inset-0 w-full h-full object-contain"
+                            preload="metadata"
+                            controls
+                            playsInline
+                            style={{ background: "#000" }}
+                            onLoadedMetadata={(e) => reportMediaSize(piece.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight, piece.ar)}
+                          />
+                        ) : piece.imageUrl ? (
+                          <img
+                            src={piece.imageUrl}
+                            alt={name}
+                            className="absolute inset-0 w-full h-full object-contain"
+                            onLoad={(e) => reportMediaSize(piece.id, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight, piece.ar)}
+                          />
+                        ) : (
+                          <div className="absolute inset-0 rounded-lg border flex items-center justify-center" style={{ background: "#f9fafb", borderColor: "#f3f4f6" }}>
+                            <div className="w-8 h-4 rounded opacity-60" style={{ background: "#f3f4f6" }} />
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-
-                  <span className="text-gray-300 shrink-0" style={{ fontSize: "7px" }}>{piece.dim}</span>
-
-                  <AnimatePresence>
-                    {showTitleField ? (
-                      <motion.input
-                        key="title-input"
-                        initial={{ opacity: 0, y: -3 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -3 }}
-                        transition={{ duration: 0.14 }}
-                        autoFocus={!!titleEditing[piece.id] && !pieceTitle}
-                        value={pieceTitle ?? ""}
-                        onChange={(e) => updatePiece(piece.id, { title: e.target.value })}
-                        onBlur={() => {
-                          if (!pieceTitle)
-                            setTitleEditing((prev) => { const n = { ...prev }; delete n[piece.id]; return n; });
-                        }}
-                        placeholder="Add a title…"
-                        className="text-gray-600 bg-transparent outline-none border-b border-transparent focus:border-gray-200 w-full font-medium transition-colors shrink-0"
-                        style={{ fontSize: "9px" }}
+                      <input
+                        value={name ?? ""}
+                        onChange={(e) => updatePiece(piece.id, { name: e.target.value })}
+                        className="bg-transparent outline-none border-b border-transparent focus:border-gray-200 transition-colors w-full shrink-0"
+                        style={{ fontSize: "7px", fontFamily: "monospace", color: "#6b7280" }}
                       />
-                    ) : (
-                      <motion.button
-                        key="add-title"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.12 }}
-                        onClick={() => setTitleEditing((prev) => ({ ...prev, [piece.id]: true }))}
-                        className="text-left text-gray-200 hover:text-gray-400 cursor-pointer transition-colors shrink-0"
-                        style={{ fontSize: "7px" }}
-                      >
-                        + Add title
-                      </motion.button>
-                    )}
-                  </AnimatePresence>
+                      <span className="shrink-0" style={{ fontSize: "7px", color: "#d1d5db" }}>{piece.dim}</span>
+                      <AnimatePresence>
+                        {showTitleField ? (
+                          <motion.input
+                            key="title-input"
+                            initial={{ opacity: 0, y: -3 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -3 }}
+                            transition={{ duration: 0.14 }}
+                            autoFocus={!!titleEditing[piece.id] && !pieceTitle}
+                            value={pieceTitle ?? ""}
+                            onChange={(e) => updatePiece(piece.id, { title: e.target.value })}
+                            onBlur={() => {
+                              if (!pieceTitle)
+                                setTitleEditing((prev) => { const n = { ...prev }; delete n[piece.id]; return n; });
+                            }}
+                            placeholder="Add a title…"
+                            className="bg-transparent outline-none border-b border-transparent focus:border-gray-200 w-full font-medium transition-colors shrink-0"
+                            style={{ fontSize: "9px", color: "#6b7280" }}
+                          />
+                        ) : (
+                          <motion.button
+                            key="add-title"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.12 }}
+                            onClick={() => setTitleEditing((prev) => ({ ...prev, [piece.id]: true }))}
+                            className="text-left hover:text-gray-400 cursor-pointer transition-colors shrink-0"
+                            style={{ fontSize: "7px", color: "#d1d5db" }}
+                          >
+                            + Add title
+                          </motion.button>
+                        )}
+                      </AnimatePresence>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -670,11 +720,53 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
             </div>
           </div>
           <div className="h-px bg-gray-100" />
-          <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
-            <p className="text-gray-400" style={{ fontSize: "11px", lineHeight: "1.55" }}>
-              Cover content is inherited from Campaign Setup. To edit, go back to{" "}
-              <span className="font-medium text-gray-600">Cover & Branding</span>.
-            </p>
+          <div>
+            <p className="text-gray-400 mb-2.5" style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>Template</p>
+            <div className="grid grid-cols-2 gap-2">
+              {COVER_TEMPLATES.map((t) => {
+                const active = (campaign.coverTemplate || "classic").toLowerCase() === t.id;
+                const accent = campaign.brandColor || "#2c6bf2";
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => onUpdate({ coverTemplate: t.id })}
+                    className="rounded-lg p-1.5 cursor-pointer transition-all text-left"
+                    style={{ border: `1.5px solid ${active ? accent : "#f3f4f6"}`, background: active ? "#fafbff" : "#fff" }}
+                  >
+                    <div className="mb-1.5"><CoverTemplateMini id={t.id} accent={accent} /></div>
+                    <span className="block text-center" style={{ fontSize: "10px", fontWeight: 500, color: active ? "#111827" : "#9ca3af" }}>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="h-px bg-gray-100" />
+          <div>
+            <p className="text-gray-400 mb-2.5" style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>Cover Color</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {COVER_COLORS.map((c) => {
+                const active = (campaign.brandColor || "#2c6bf2").toLowerCase() === c.toLowerCase();
+                return (
+                  <button
+                    key={c}
+                    onClick={() => onUpdate({ brandColor: c })}
+                    className="w-6 h-6 rounded-full cursor-pointer transition-transform hover:scale-110"
+                    style={{ background: c, boxShadow: active ? `0 0 0 2px #fff, 0 0 0 3.5px ${c}` : "none" }}
+                    title={c}
+                  />
+                );
+              })}
+              {/* color personalizado */}
+              <label className="w-6 h-6 rounded-full cursor-pointer overflow-hidden relative border border-gray-200 hover:scale-110 transition-transform" title="Color personalizado"
+                style={{ background: "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)" }}>
+                <input
+                  type="color"
+                  value={campaign.brandColor || "#2c6bf2"}
+                  onChange={(e) => onUpdate({ brandColor: e.target.value })}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+              </label>
+            </div>
           </div>
           <div className="h-px bg-gray-100" />
           {actions}
@@ -795,157 +887,94 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
     return map;
   }, [slides]);
 
-  const renderSlideItem = (s: Slide, indentPx: number) => {
-    const globalIdx = slides.findIndex((sl) => sl.id === s.id);
-    const isActive = selectedId === s.id;
-    return (
-      <button
-        key={s.id}
-        onClick={() => selectSlide(s.id)}
-        className={`w-full flex items-center gap-2 pr-3 py-1.5 cursor-pointer text-left transition-all duration-100 border-l-2 ${
-          isActive ? "bg-gray-900 border-gray-700" : "border-transparent hover:bg-gray-50 hover:border-gray-200"
-        }`}
-        style={{ paddingLeft: `${indentPx}px` }}
-      >
-        <span
-          className={`shrink-0 font-semibold tabular-nums ${isActive ? "text-gray-500" : "text-gray-300"}`}
-          style={{ fontSize: "10px", minWidth: "14px" }}
-        >{globalIdx + 1}</span>
-        <div className="min-w-0">
-          <p className={`font-medium truncate ${isActive ? "text-white" : "text-gray-600"}`} style={{ fontSize: "11px" }}>
-            {s.label}
-          </p>
-          <p className={`truncate ${isActive ? "text-gray-500" : "text-gray-400"}`} style={{ fontSize: "10px" }}>
-            {s.subtitle}
-          </p>
-        </div>
-      </button>
-    );
-  };
-
-  const renderPlatformGroup = (sub: string, platform: string, platSlides: Slide[], indentPx: number) => {
-    const pk = platExpandKey(sub, platform);
-    const isExpanded = expanded.has(pk);
-    const color = PLATFORM_COLORS[platform] ?? "#888";
-    return (
-      <div key={`${sub}|${platform}`}>
-        <button
-          onClick={() => toggleExpanded(pk)}
-          className="w-full flex items-center gap-2 py-1.5 hover:bg-gray-50 cursor-pointer transition-colors duration-100 pr-3"
-          style={{ paddingLeft: `${indentPx}px` }}
-        >
-          {isExpanded
-            ? <ChevronDown size={10} className="text-gray-400 shrink-0" />
-            : <ChevronRight size={10} className="text-gray-400 shrink-0" />
-          }
-          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-          <span className="text-gray-700 font-semibold flex-1 text-left" style={{ fontSize: "12px" }}>{platform}</span>
-          <span className="text-gray-300 tabular-nums" style={{ fontSize: "10px" }}>{platSlides.length}</span>
-        </button>
-        <AnimatePresence initial={false}>
-          {isExpanded && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.16 }}
-              className="overflow-hidden"
-            >
-              {platSlides.map((s) => renderSlideItem(s, indentPx + 22))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
-  };
-
-  const renderSubCampaignGroup = (sub: string) => {
-    const sk = subExpandKey(sub);
-    const isExpanded = expanded.has(sk);
-    const subPlats = sortByOrder(Object.keys(slidesBySubAndPlat[sub] ?? {}));
-    const totalSlides = Object.values(slidesBySubAndPlat[sub] ?? {}).flat().length;
-    return (
-      <div key={sub} className="mt-0.5">
-        <button
-          onClick={() => toggleExpanded(sk)}
-          className="w-full flex items-center gap-2 px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors duration-100"
-        >
-          {isExpanded
-            ? <ChevronDown size={11} className="text-gray-400 shrink-0" />
-            : <ChevronRight size={11} className="text-gray-400 shrink-0" />
-          }
-          <Folder size={11} className="text-gray-400 shrink-0" />
-          <span className="text-gray-800 font-semibold flex-1 text-left truncate" style={{ fontSize: "12px" }}>{sub}</span>
-          <span className="text-gray-300 tabular-nums ml-1 shrink-0" style={{ fontSize: "10px" }}>{totalSlides}</span>
-        </button>
-        <AnimatePresence initial={false}>
-          {isExpanded && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.18 }}
-              className="overflow-hidden"
-            >
-              <div className="border-l border-gray-100 ml-5">
-                {subPlats.map((platform) =>
-                  renderPlatformGroup(sub, platform, slidesBySubAndPlat[sub][platform] ?? [], 18)
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
-  };
-
   const renderTree = () => {
     if (allPlatforms.length === 0) {
       return (
         <div className="px-4 py-6 text-center">
-          <p className="text-gray-300" style={{ fontSize: "11px" }}>No platforms yet</p>
-          <p className="text-gray-300 mt-0.5" style={{ fontSize: "10px" }}>Upload banners to get started</p>
+          <p style={{ fontSize: "11px", color: textDim }}>No platforms yet</p>
+          <p style={{ fontSize: "10px", color: textDim, marginTop: "2px" }}>Upload banners to get started</p>
         </div>
       );
     }
 
+    // Build a flat list of sections: each platform is a colored section header followed by its slides
+    const sections: Array<{ platform: string; color: string; sub?: string; platSlides: Slide[] }> = [];
     if (showSubCampaigns) {
-      const orderedSubs = [
-        ...namedSubCampaigns.sort(),
-        ...(slidesBySubAndPlat[""] ? [""] : []),
-      ];
-      return (
-        <>
-          {orderedSubs.map((sub) =>
-            sub === "" ? (
-              // Flat items with no sub-campaign header
-              <div key="__flat__">
-                {sortByOrder(Object.keys(slidesBySubAndPlat[""] ?? {})).map((platform) =>
-                  renderPlatformGroup("", platform, slidesBySubAndPlat[""][platform] ?? [], 16)
-                )}
-              </div>
-            ) : renderSubCampaignGroup(sub)
-          )}
-        </>
-      );
+      const orderedSubs = [...namedSubCampaigns.sort(), ...(slidesBySubAndPlat[""] ? [""] : [])];
+      orderedSubs.forEach((sub) => {
+        sortByOrder(Object.keys(slidesBySubAndPlat[sub] ?? {})).forEach((platform) => {
+          sections.push({ platform, sub: sub || undefined, color: PLATFORM_COLORS[platform] ?? "#888", platSlides: slidesBySubAndPlat[sub][platform] ?? [] });
+        });
+      });
+    } else {
+      allPlatforms.forEach((platform) => {
+        const sub = Object.keys(slidesBySubAndPlat).find((s) => slidesBySubAndPlat[s][platform]) ?? "";
+        sections.push({ platform, sub: sub || undefined, color: PLATFORM_COLORS[platform] ?? "#888", platSlides: flatSlidesByPlat[platform] ?? [] });
+      });
     }
 
-    // Flat view: just platforms (graceful fallback when 0 or 1 sub-campaigns)
     return (
-      <>
-        {allPlatforms.map((platform) => {
-          // Find the sub-campaign this platform belongs to
-          const sub = Object.keys(slidesBySubAndPlat).find((s) => slidesBySubAndPlat[s][platform]) ?? "";
-          return renderPlatformGroup(sub, platform, flatSlidesByPlat[platform] ?? [], 16);
-        })}
-      </>
+      <div className="py-1">
+        {sections.map(({ platform, sub, color, platSlides }) => (
+          <div key={`${sub ?? ""}|${platform}`} className="mb-1">
+            {/* Platform header */}
+            <div className="flex items-center gap-2 px-3 py-1.5 mx-2 rounded-lg mb-0.5" style={{ background: `${color}15` }}>
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+              <span className="font-bold uppercase tracking-wider flex-1 truncate" style={{ fontSize: "9px", color }}>
+                {platform}{sub ? ` · ${sub}` : ""}
+              </span>
+              <span className="tabular-nums font-medium" style={{ fontSize: "9px", color: `${color}99` }}>{platSlides.length}</span>
+            </div>
+            {/* Slides under this platform */}
+            {platSlides.map((s) => {
+              const globalIdx = slides.findIndex((sl) => sl.id === s.id);
+              const isActive = selectedId === s.id;
+              const typeLabel = s.type === "intro" ? "INTRO" : s.partLabel ? `PIECES ${s.partLabel}` : "PIECES";
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => selectSlide(s.id)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 cursor-pointer text-left transition-all duration-100 mx-0 relative"
+                  style={{
+                    background: isActive ? (dark ? "#1e3a5f" : "#eff6ff") : "transparent",
+                    borderLeft: `2px solid ${isActive ? color : "transparent"}`,
+                  }}
+                >
+                  <span
+                    className="shrink-0 font-semibold tabular-nums rounded"
+                    style={{ fontSize: "9px", minWidth: "16px", color: isActive ? color : textDim, background: isActive ? `${color}20` : "transparent", padding: "1px 3px" }}
+                  >{globalIdx + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold uppercase tracking-wider truncate" style={{ fontSize: "8px", color: isActive ? color : textMuted }}>
+                      {typeLabel}
+                    </p>
+                    <p className="truncate" style={{ fontSize: "10px", color: isActive ? (dark ? "#e5e7eb" : "#111827") : textMuted, fontWeight: isActive ? 500 : 400 }}>
+                      {s.subtitle}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     );
   };
 
   // ── Main render ────────────────────────────────────────────────────────────
 
+  const bg = dark ? "#111827" : "#ffffff";
+  const bg2 = dark ? "#1f2937" : "#f9fafb";
+  const border = dark ? "#374151" : "#f3f4f6";
+  const text = dark ? "#f9fafb" : "#111827";
+  const textMuted = dark ? "#9ca3af" : "#6b7280";
+  const textDim = dark ? "#6b7280" : "#d1d5db";
+  const canvasBg = dark ? "#0f172a" : "#F1F3F4";
+  // el slide es el entregable: siempre claro, el modo oscuro solo afecta la interfaz
+  const slideBg = "#ffffff";
+
   return (
-    <div className="flex flex-col h-screen w-full bg-white overflow-hidden">
+    <div className="flex flex-col h-screen w-full overflow-hidden" style={{ background: bg }}>
 
       <input
         ref={fileInputRef}
@@ -1086,7 +1115,7 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
       </AnimatePresence>
 
       {/* TOP BAR */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-white shrink-0">
+      <div className="flex items-center gap-2 px-4 py-3 shrink-0" style={{ background: bg, borderBottom: `1px solid ${border}` }}>
         <button
           onClick={() => setMenuOpen(true)}
           className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 cursor-pointer transition-all duration-100 shrink-0"
@@ -1146,10 +1175,18 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
             </button>
           </div>
 
-          <button className="p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 cursor-pointer transition-all duration-100">
+          <button
+            onClick={() => setDark((d) => !d)}
+            className="p-2 rounded-lg cursor-pointer transition-all duration-100"
+            style={{ color: textMuted }}
+            title={dark ? "Light mode" : "Dark mode"}
+          >
+            {dark ? <Sun size={13} /> : <Moon size={13} />}
+          </button>
+          <button className="p-2 rounded-lg cursor-pointer transition-all duration-100" style={{ color: textMuted }}>
             <RotateCcw size={13} />
           </button>
-          <div className="w-px h-4 bg-gray-200" />
+          <div className="w-px h-4" style={{ background: border }} />
           <motion.button
             whileHover={{ scale: 1.01 }}
             whileTap={{ scale: 0.98 }}
@@ -1167,10 +1204,10 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
       <div className="flex flex-1 overflow-hidden relative">
 
         {/* LEFT: Slides tree — 3 levels: cover / sub-campaign / platform / slides */}
-        <div className="w-64 border-r border-gray-100 flex flex-col shrink-0 bg-white overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
-            <span className="text-gray-800 font-semibold" style={{ fontSize: "13px" }}>Slides</span>
-            <span className="bg-gray-100 text-gray-500 rounded-md px-1.5 py-0.5 font-medium" style={{ fontSize: "10px" }}>
+        <div className="w-64 flex flex-col shrink-0 overflow-hidden" style={{ background: bg, borderRight: `1px solid ${border}` }}>
+          <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: `1px solid ${border}` }}>
+            <span className="font-semibold" style={{ fontSize: "13px", color: text }}>Slides</span>
+            <span className="rounded-md px-1.5 py-0.5 font-medium" style={{ fontSize: "10px", background: bg2, color: textMuted }}>
               {slides.length}
             </span>
           </div>
@@ -1179,19 +1216,21 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
             {/* Cover */}
             <button
               onClick={() => selectSlide("cover")}
-              className={`w-full flex items-center gap-2.5 px-4 py-2 cursor-pointer text-left transition-all duration-100 ${
-                selectedId === "cover" ? "bg-gray-900" : "hover:bg-gray-50"
-              }`}
+              className="w-full flex items-center gap-2.5 px-4 py-2 cursor-pointer text-left transition-all duration-100"
+              style={{
+                background: selectedId === "cover" ? (dark ? "#374151" : "#111827") : "transparent",
+                borderLeft: `2px solid ${selectedId === "cover" ? (dark ? "#6b7280" : "#374151") : "transparent"}`,
+              }}
             >
               <span
-                className={`shrink-0 font-semibold tabular-nums ${selectedId === "cover" ? "text-gray-500" : "text-gray-300"}`}
-                style={{ fontSize: "10px", minWidth: "14px" }}
+                className="shrink-0 font-semibold tabular-nums"
+                style={{ fontSize: "10px", minWidth: "14px", color: selectedId === "cover" ? (dark ? "#9ca3af" : "#6b7280") : textDim }}
               >1</span>
               <div>
-                <p className={`font-medium ${selectedId === "cover" ? "text-white" : "text-gray-700"}`} style={{ fontSize: "12px" }}>
+                <p className="font-medium" style={{ fontSize: "12px", color: selectedId === "cover" ? "#fff" : text }}>
                   Cover
                 </p>
-                <p className={selectedId === "cover" ? "text-gray-500" : "text-gray-400"} style={{ fontSize: "10px" }}>
+                <p style={{ fontSize: "10px", color: selectedId === "cover" ? (dark ? "#9ca3af" : "#6b7280") : textMuted }}>
                   {campaign.campaignName}
                 </p>
               </div>
@@ -1200,11 +1239,11 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
             {renderTree()}
           </div>
 
-          <div className="p-3 border-t border-gray-100 shrink-0">
+          <div className="p-3 shrink-0" style={{ borderTop: `1px solid ${border}` }}>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl py-2.5 cursor-pointer text-gray-400 hover:border-gray-300 hover:text-gray-600 transition-colors duration-100"
-              style={{ fontSize: "12px" }}
+              className="w-full flex items-center justify-center gap-2 border-2 border-dashed rounded-xl py-2.5 cursor-pointer transition-colors duration-100"
+              style={{ fontSize: "12px", color: textMuted, borderColor: border }}
             >
               <Plus size={13} />
               Add banners
@@ -1215,7 +1254,7 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
         {/* CENTER: Slide canvas */}
         <div
           className="flex-1 flex flex-col overflow-hidden relative"
-          style={{ backgroundColor: "#F1F3F4" }}
+          style={{ backgroundColor: canvasBg }}
           onDragEnter={handleDragEnter}
           onDragLeave={handleDragLeave}
           onDragOver={(e) => e.preventDefault()}
@@ -1326,7 +1365,8 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
                         animate="center"
                         exit="exit"
                         transition={{ duration: 0.2, ease: "easeOut" }}
-                        className="absolute inset-0 bg-white rounded-2xl shadow-lg overflow-hidden"
+                        className="absolute inset-0 rounded-2xl shadow-lg overflow-hidden"
+                        style={{ background: slideBg }}
                       >
                         {slide.type === "cover" && renderCover()}
                         {slide.type === "intro" && renderIntro(slide)}
@@ -1344,11 +1384,11 @@ export function Frame04PreviewBuilder({ onBack, onPresent, campaign }: Props) {
         <motion.div
           animate={{ width: propsOpen ? 256 : 0 }}
           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          className="border-l border-gray-100 flex flex-col bg-white overflow-hidden shrink-0"
-          style={{ minWidth: 0 }}
+          className="flex flex-col overflow-hidden shrink-0"
+          style={{ minWidth: 0, background: bg, borderLeft: `1px solid ${border}` }}
         >
           {/* Fixed inner width so content clips cleanly when panel animates closed */}
-          <div className="w-64 flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+          <div className="w-64 flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom: `1px solid ${border}` }}>
             <AnimatePresence mode="wait">
               <motion.span
                 key={selectedId}
