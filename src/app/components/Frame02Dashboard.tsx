@@ -5,10 +5,12 @@ import { toast } from "sonner";
 import {
   Search, Plus, ChevronRight, LayoutGrid, Folder, Users, CheckSquare,
   Settings, HelpCircle, Bell,
-  MoreHorizontal, X, CheckCircle2, Clock, FileText, CheckCheck,
+  MoreHorizontal, X, Clock, FileText, CheckCheck,
   User, LogOut, Sun, Moon, Image as ImageIcon,
   Share2, MessageSquare, UploadCloud, TrendingUp, Calendar,
 } from "lucide-react";
+import { ApprovalTimelineCompact } from "./ApprovalTimeline";
+import { WORKFLOW_CAMPAIGNS, STEP_META, STEP_BADGE } from "../lib/approvalWorkflow";
 import { NotificationPanel, UserMenu, HelpButton, CreateAINavItem } from "./TopBarComponents";
 
 interface Props {
@@ -57,10 +59,10 @@ const NOTIFICATIONS: { id: number; type: NotifType; title: string; sub: string; 
 ];
 
 const STATUS_CONFIG: Record<Status, { label: string; icon: React.ElementType; pill: string }> = {
-  active: { label: "Activa",     icon: CheckCircle2, pill: "bg-green-50 text-green-700 ring-1 ring-green-200" },
-  review: { label: "En revisión", icon: Clock,       pill: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" },
-  draft:  { label: "Borrador",   icon: FileText,     pill: "bg-white/80 text-gray-500 ring-1 ring-gray-200" },
-  done:   { label: "Aprobada",   icon: CheckCheck,   pill: "bg-[#2c6bf2] text-white" },
+  active: { label: "Activa",      icon: Clock,      pill: "bg-green-50 text-green-700 ring-1 ring-green-200" },
+  review: { label: "En revisión", icon: Clock,      pill: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" },
+  draft:  { label: "Borrador",    icon: FileText,   pill: "bg-white/80 text-gray-500 ring-1 ring-gray-200" },
+  done:   { label: "Aprobada",    icon: CheckCheck, pill: "bg-[#2c6bf2] text-white" },
 };
 
 // ─── New Campaign Modal ───────────────────────────────────────────────────────
@@ -178,10 +180,9 @@ export function Frame02Dashboard({ onNewCampaign, onNewCampaignChoice, onOpenCam
   // overview data
   const needsAttention = campaigns.filter((c) => c.status === "review" || c.status === "draft");
   const KPIS = [
-    { label: "Campañas activas", value: campaigns.filter((c) => c.status === "active").length, icon: CheckCircle2, tint: "#2c6bf2", delta: "+2", up: true },
-    { label: "Pendientes de aprobación", value: campaigns.filter((c) => c.status === "review").length, icon: Clock, tint: "#FFB020", delta: "+1", up: true },
-    { label: "Aprobadas esta semana", value: campaigns.filter((c) => c.status === "done").length, icon: CheckCheck, tint: "#00C566", delta: "+3", up: true },
-    { label: "Previews compartidos", value: campaigns.reduce((s, c) => s + c.previews, 0), icon: ImageIcon, tint: "#6816B0", delta: "+12", up: true },
+    { label: "Pendientes de aprobación", value: campaigns.filter((c) => c.status === "review").length, icon: Clock,     tint: "#FFB020", delta: "+1" },
+    { label: "Aprobadas esta semana",     value: campaigns.filter((c) => c.status === "done").length,   icon: CheckCheck, tint: "#00C566", delta: "+3" },
+    { label: "Previews compartidos",      value: campaigns.reduce((s, c) => s + c.previews, 0),          icon: ImageIcon,  tint: "#6816B0", delta: "+12" },
   ];
   const ACTIVITY = [
     { who: "Diageo", text: "aprobó 4 previews de Diageo HotSale", time: "hace 5m", dot: "#00C566" },
@@ -193,13 +194,6 @@ export function Frame02Dashboard({ onNewCampaign, onNewCampaignChoice, onOpenCam
   const T = dark
     ? { page: "#0b0b0f", surface: "#141418", border: "#26262e", text: "#f4f5f7", sub: "#9aa3b2", hover: "#1d1d23", searchBg: "#1d1d23" }
     : { page: "#F7F7F8", surface: "#ffffff", border: "#f0f0f2", text: "#111827", sub: "#9ca3af", hover: "#f9fafb", searchBg: "#f9fafb" };
-
-  const navItems = [
-    { icon: LayoutGrid,  label: "Dashboard",   active: true,  onClick: undefined as undefined | (() => void) },
-    { icon: Folder,      label: "Campañas",    active: false, onClick: onViewCampaigns },
-    { icon: Users,       label: "Marcas",      active: false, onClick: onViewAccounts },
-    { icon: CheckSquare, label: "Aprobaciones", active: false, onClick: onViewApprovals },
-  ];
 
   return (
     <>
@@ -267,11 +261,11 @@ export function Frame02Dashboard({ onNewCampaign, onNewCampaignChoice, onOpenCam
             </div>
           </div>
 
-          {/* Scrollable content — OVERVIEW (bento) */}
+          {/* Scrollable content */}
           <div className="flex-1 overflow-y-auto px-8 py-7">
 
             {/* Greeting + date */}
-            <div className="flex items-end justify-between mb-7">
+            <div className="flex items-end justify-between mb-6">
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight" style={{ color: T.text }}>Hola, Andrea 👋</h1>
                 <p className="text-[14px] mt-1" style={{ color: T.sub }}>Esto es lo que está pasando con tus campañas hoy.</p>
@@ -281,100 +275,167 @@ export function Frame02Dashboard({ onNewCampaign, onNewCampaignChoice, onOpenCam
               </div>
             </div>
 
-            {/* KPIs with trend */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              {KPIS.map((k, i) => (
-                <motion.div key={k.label}
-                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.35 }}
-                  className="rounded-2xl p-5" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${k.tint}1f` }}>
-                      <k.icon size={16} style={{ color: k.tint }} />
-                    </div>
-                    <span className="flex items-center gap-0.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-full" style={{ color: "#009d52", background: "rgba(0,197,102,0.12)" }}>
-                      <TrendingUp size={11} /> {k.delta}
-                    </span>
-                  </div>
-                  <p className="text-[28px] font-semibold leading-none mb-1.5" style={{ color: T.text }}>{k.value}</p>
-                  <p className="text-[12px]" style={{ color: T.sub }}>{k.label}</p>
-                </motion.div>
-              ))}
-            </div>
+            {/* ── ROW 1: 3 KPI rectangles + Recent Activity side by side ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
 
-            {/* Main bento: attention (2/3) + activity timeline (1/3) */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* KPI cards (stack of 3) + Activity panel — left takes 2 cols */}
+              <div className="lg:col-span-2 flex flex-col gap-4">
+                {/* 3 rectangular KPI cards in a single row */}
+                <div className="grid grid-cols-3 gap-4">
+                  {KPIS.map((k, i) => (
+                    <motion.div
+                      key={k.label}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05, duration: 0.35 }}
+                      className="flex flex-col"
+                      style={{
+                        background: dark ? "#141418" : "#ffffff",
+                        borderRadius: 14,
+                        padding: "18px 20px 20px",
+                        border: `1px solid ${T.border}`,
+                        boxShadow: dark
+                          ? "0 1px 3px rgba(0,0,0,0.35)"
+                          : "0 1px 3px rgba(0,0,0,0.06)",
+                      }}
+                    >
+                      {/* Top row: icon + label side by side */}
+                      <div className="flex items-center gap-2 mb-4">
+                        <k.icon size={13} style={{ color: k.tint, flexShrink: 0 }} />
+                        <p style={{ fontSize: 12, fontWeight: 500, color: T.sub, lineHeight: 1.3 }}>
+                          {k.label}
+                        </p>
+                      </div>
 
-              {/* Requiere tu atención */}
-              <div className="lg:col-span-2">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-[15px] font-semibold tracking-tight" style={{ color: T.text }}>Requiere tu atención</h2>
-                    <span className="px-1.5 h-5 min-w-5 rounded-full text-white text-[11px] font-semibold flex items-center justify-center" style={{ background: ACCENT }}>{needsAttention.length}</span>
-                  </div>
-                  <button onClick={onViewCampaigns} className="flex items-center gap-1 text-[12px] font-medium cursor-pointer" style={{ color: ACCENT }}>Ver todas <ChevronRight size={12} /></button>
+                      {/* Bottom: large number */}
+                      <p
+                        className="font-semibold leading-none tracking-tight"
+                        style={{ fontSize: 34, color: T.text }}
+                      >
+                        {k.value}
+                      </p>
+                    </motion.div>
+                  ))}
                 </div>
 
-                {needsAttention.length > 0 ? (
-                  <div className="flex flex-col gap-3">
-                    {needsAttention.map((c) => {
-                      const meta = c.status === "review"
-                        ? { hint: "El cliente solicitó cambios", cta: "Revisar", icon: MessageSquare, tint: "#FFB020" }
-                        : { hint: "Borrador sin compartir", cta: "Continuar", icon: FileText, tint: "#6b7280" };
-                      return (
-                        <motion.div key={c.id} onClick={onOpenCampaign}
-                          whileHover={{ y: -2 }}
-                          className="group flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-shadow hover:shadow-md"
-                          style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-                          {/* accent icon */}
-                          <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${meta.tint}1f` }}>
-                            <meta.icon size={17} style={{ color: meta.tint }} />
-                          </div>
-                          {/* info */}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="text-[14px] font-semibold truncate" style={{ color: T.text }}>{c.name}</p>
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_CONFIG[c.status].pill}`}>{STATUS_CONFIG[c.status].label}</span>
+                {/* Requiere tu atención */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[15px] font-semibold tracking-tight" style={{ color: T.text }}>Requiere tu atención</h2>
+                      <span className="px-1.5 h-5 min-w-5 rounded-full text-white text-[11px] font-semibold flex items-center justify-center" style={{ background: ACCENT }}>{needsAttention.length}</span>
+                    </div>
+                    <button onClick={onViewCampaigns} className="flex items-center gap-1 text-[12px] font-medium cursor-pointer" style={{ color: ACCENT }}>
+                      Ver todas <ChevronRight size={12} />
+                    </button>
+                  </div>
+
+                  {needsAttention.length > 0 ? (
+                    <div className="flex flex-col gap-3">
+                      {needsAttention.map((c) => {
+                        const meta = c.status === "review"
+                          ? { hint: "El cliente solicitó cambios", cta: "Revisar", icon: MessageSquare, tint: "#FFB020" }
+                          : { hint: "Borrador sin compartir", cta: "Continuar", icon: FileText, tint: "#6b7280" };
+                        return (
+                          <motion.div key={c.id} onClick={onOpenCampaign}
+                            whileHover={{ y: -2 }}
+                            className="group flex items-center gap-4 p-4 rounded-2xl cursor-pointer transition-shadow hover:shadow-md"
+                            style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                            <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${meta.tint}1f` }}>
+                              <meta.icon size={17} style={{ color: meta.tint }} />
                             </div>
-                            <p className="text-[12.5px] mt-0.5" style={{ color: T.sub }}>{meta.hint} · {c.client}</p>
-                          </div>
-                          {/* CTA — subtle arrow */}
-                          <button onClick={(e) => { e.stopPropagation(); onOpenCampaign(); }}
-                            aria-label={meta.cta}
-                            className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all"
-                            style={{ background: T.hover, color: T.sub }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = ACCENT; e.currentTarget.style.color = "#fff"; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.sub; }}>
-                            <ChevronRight size={16} />
-                          </button>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="rounded-2xl px-4 py-12 text-center" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
-                    <p className="text-[13px]" style={{ color: T.sub }}>Todo al día ✨ Nada pendiente.</p>
-                  </div>
-                )}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="text-[14px] font-semibold truncate" style={{ color: T.text }}>{c.name}</p>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_CONFIG[c.status].pill}`}>{STATUS_CONFIG[c.status].label}</span>
+                              </div>
+                              <p className="text-[12.5px] mt-0.5" style={{ color: T.sub }}>{meta.hint} · {c.client}</p>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); onOpenCampaign(); }}
+                              aria-label={meta.cta}
+                              className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all"
+                              style={{ background: T.hover, color: T.sub }}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = ACCENT; e.currentTarget.style.color = "#fff"; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.sub; }}>
+                              <ChevronRight size={16} />
+                            </button>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl px-4 py-10 text-center" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                      <p className="text-[13px]" style={{ color: T.sub }}>Todo al día ✨ Nada pendiente.</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Actividad reciente — timeline */}
+              {/* Actividad reciente — right column, spans full height of row 1 */}
               <div className="lg:col-span-1 rounded-2xl flex flex-col" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
                 <div className="px-5 py-4" style={{ borderBottom: `1px solid ${T.border}` }}>
                   <h2 className="text-[15px] font-semibold tracking-tight" style={{ color: T.text }}>Actividad reciente</h2>
                 </div>
                 <div className="p-5 flex-1">
                   <div className="relative">
-                    {/* vertical connector */}
                     <div className="absolute left-[5px] top-1 bottom-1 w-px" style={{ background: T.border }} />
                     {ACTIVITY.map((a, i) => (
                       <div key={i} className={`relative pl-6 ${i < ACTIVITY.length - 1 ? "pb-5" : ""}`}>
                         <div className="absolute left-0 top-0.5 w-[11px] h-[11px] rounded-full" style={{ background: a.dot, border: `2px solid ${T.surface}`, boxShadow: `0 0 0 1px ${a.dot}55` }} />
-                        <p className="text-[13px] leading-snug" style={{ color: T.text }}><span className="font-semibold">{a.who}</span> <span style={{ color: T.sub }}>{a.text}</span></p>
+                        <p className="text-[13px] leading-snug" style={{ color: T.text }}>
+                          <span className="font-semibold">{a.who}</span>{" "}
+                          <span style={{ color: T.sub }}>{a.text}</span>
+                        </p>
                         <p className="text-[11px] mt-1" style={{ color: T.sub, opacity: 0.7 }}>{a.time}</p>
                       </div>
                     ))}
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* ── ROW 2: Campaign Status (full width) ── */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-[15px] font-semibold tracking-tight" style={{ color: T.text }}>Estado de campañas</h2>
+                <button onClick={onViewApprovals} className="flex items-center gap-1 text-[12px] font-medium cursor-pointer" style={{ color: ACCENT }}>
+                  Ver todas <ChevronRight size={12} />
+                </button>
+              </div>
+              <div className="rounded-2xl overflow-hidden" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                {WORKFLOW_CAMPAIGNS.filter((c) => c.currentStep !== "completed").slice(0, 4).map((c, i, arr) => {
+                  const badge = STEP_BADGE[c.currentStep];
+                  const stepLabel = STEP_META[c.currentStep].label;
+                  return (
+                    <motion.div
+                      key={c.id}
+                      onClick={onViewApprovals}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.04, duration: 0.3 }}
+                      className="flex items-center gap-4 px-5 py-4 cursor-pointer transition-colors"
+                      style={{ borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = T.hover)}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <div style={{ minWidth: 160 }}>
+                        <p className="text-[13px] font-semibold leading-tight" style={{ color: T.text }}>{c.name}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: T.sub }}>{c.brand}</p>
+                      </div>
+                      <div className="flex-1">
+                        <ApprovalTimelineCompact campaign={c} dark={dark} />
+                      </div>
+                      <div className="shrink-0 flex items-center gap-3">
+                        <span className="px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap"
+                          style={{ background: badge.bg, color: badge.color }}>
+                          {stepLabel}
+                        </span>
+                        <span className="text-[11px]" style={{ color: T.sub }}>{c.updatedAt}</span>
+                        <ChevronRight size={14} style={{ color: T.sub, opacity: 0.5 }} />
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             </div>
 
