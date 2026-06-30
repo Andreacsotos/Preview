@@ -28,7 +28,7 @@ const campaigns: { id: number; name: string; client: string; status: Status; pre
   { id: 1, name: "Mundial 2026",            client: "Éxito",       status: "active", previews: 2,  updated: "hace 2h" },
   { id: 2, name: "Evento Etto Q2",          client: "Éxito",       status: "review", previews: 4,  updated: "hace 2h" },
   { id: 3, name: "Catálogos Junio",         client: "Éxito",       status: "draft",  previews: 8,  updated: "hace 5h" },
-  { id: 4, name: "Diageo HotSale",          client: "Diageo",      status: "done",   previews: 5,  updated: "ayer",        thumbnail: "/campaigns/diageo-hotsale/display-600x315.svg" },
+  { id: 4, name: "Diageo HotSale",          client: "Diageo",      status: "done",   previews: 5,  updated: "ayer",        thumbnail: "/campaigns/diageo-hotsale/display-886x300.png" },
   { id: 5, name: "Refresh de marca Q3",     client: "Apex Corp",   status: "active", previews: 8,  updated: "hace 1 sem" },
   { id: 6, name: "Lanzamiento Verano 2026", client: "Bloom Studio",status: "review", previews: 14, updated: "ayer" },
 ];
