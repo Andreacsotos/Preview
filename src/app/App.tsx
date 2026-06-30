@@ -21,6 +21,7 @@ import { Frame03CampaignSetup } from "./components/Frame03CampaignSetup";
 import { Frame04PreviewBuilder } from "./components/Frame04PreviewBuilder";
 import { Frame05Presentation } from "./components/Frame05Presentation";
 import { FrameBlog } from "./components/FrameBlog";
+import { DIAGEO_HOTSALE_CAMPAIGN } from "./lib/seedCampaigns";
 
 type Screen =
   | "home"
@@ -156,6 +157,15 @@ export default function App() {
   const updateCampaign = (updates: Partial<CampaignState>) =>
     setCampaign((prev) => ({ ...prev, ...updates }));
 
+  const openCampaign = (id: number) => {
+    if (id === 4) {
+      setCampaign(DIAGEO_HOTSALE_CAMPAIGN);
+      go("builder");
+    } else {
+      go("campaign-detail");
+    }
+  };
+
   return (
     <NavContext.Provider value={{
       goSettings,
@@ -208,7 +218,7 @@ export default function App() {
             <Frame02Dashboard
               onNewCampaign={(name: string) => { updateCampaign({ campaignName: name }); go("campaign-detail"); }}
               onNewCampaignChoice={() => setChoiceOpen(true)}
-              onOpenCampaign={() => go("campaign-detail")}
+              onOpenCampaign={() => openCampaign(0)}
               onViewCampaigns={() => go("campaigns")}
               onViewAccounts={() => go("accounts")}
               onViewApprovals={() => go("approvals")}
@@ -221,7 +231,7 @@ export default function App() {
             <Frame02bCampaignList
               onBack={() => go("dashboard")}
               onNewCampaign={() => setChoiceOpen(true)}
-              onOpenCampaign={() => go("campaign-detail")}
+              onOpenCampaign={openCampaign}
               onViewAccounts={() => go("accounts")}
               onViewApprovals={() => go("approvals")}
               dark={dark}

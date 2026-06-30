@@ -1,0 +1,108 @@
+import type { CampaignState } from "../App";
+
+const LEGAL =
+  "Diageo te invita a disfrutar con responsabilidad. El exceso de alcohol es perjudicial para la salud. Prohibida la venta de bebidas embriagantes a menores de edad. Todas las promociones aquí descritas son válidas a nivel nacional, o hasta agotar existencias, del 18 de julio hasta el 19 de julio del 2026. Los consumidores recibirán los siguientes descuentos: 20% de descuento en Buchanan's Deluxe Whisky Escocés 12 años 750 ML (40% VOL. ALC.). Estas ofertas son válidas únicamente en compras realizadas a través de Éxito.com, Carulla.com, Éxito APP y Carulla APP. Son 1000 unidades disponibles por referencia. Válido con cualquier medio de pago. Máximo 3 unidades por transacción.";
+
+export const DIAGEO_HOTSALE_CAMPAIGN: CampaignState = {
+  campaignName: "Diageo HotSale",
+  clientName: "Diageo",
+  selectedFormats: ["Display"],
+  includeCover: true,
+  coverTemplate: "classic",
+  shippingDate: "19 Jul 2026",
+  reviewRound: "Ronda 1",
+  brandColor: "#f5c518",
+  brandColors: ["#f5c518", "#1b5e2b", "#0d3d1a"],
+  brandFont: null,
+  selectedBg: "dark",
+  logoName: null,
+  logoUrl: null,
+  heroName: null,
+  heroUrl: null,
+  uploadedPlatforms: ["Display"],
+  uploadedPieces: {},
+  uploadedGroups: {},
+  builderState: {
+    groups: {
+      "": {
+        Display: [
+          {
+            id: "dh-1",
+            name: "600×315 — Social / Native",
+            dim: "600×315",
+            ar: 600 / 315,
+            brand: "Diageo",
+            legal: LEGAL,
+            title: "20% OFF en Buchanan's Deluxe",
+            imageUrl: "/campaigns/diageo-hotsale/display-600x315.svg",
+            fileType: "image",
+            fileName: "display-600x315.svg",
+          },
+          {
+            id: "dh-2",
+            name: "300×250 — Medium Rectangle",
+            dim: "300×250",
+            ar: 300 / 250,
+            brand: "Diageo",
+            legal: LEGAL,
+            title: "20% OFF en Buchanan's Deluxe",
+            imageUrl: "/campaigns/diageo-hotsale/display-300x250.svg",
+            fileType: "image",
+            fileName: "display-300x250.svg",
+          },
+          {
+            id: "dh-3",
+            name: "728×90 — Leaderboard",
+            dim: "728×90",
+            ar: 728 / 90,
+            brand: "Diageo",
+            legal: LEGAL,
+            title: "20% OFF en Buchanan's Deluxe",
+            imageUrl: "/campaigns/diageo-hotsale/display-728x90.svg",
+            fileType: "image",
+            fileName: "display-728x90.svg",
+          },
+          {
+            id: "dh-4",
+            name: "970×90 — Super Leaderboard",
+            dim: "970×90",
+            ar: 970 / 90,
+            brand: "Diageo",
+            legal: LEGAL,
+            title: "20% OFF en Buchanan's Deluxe",
+            imageUrl: "/campaigns/diageo-hotsale/display-970x90.svg",
+            fileType: "image",
+            fileName: "display-970x90.svg",
+          },
+          {
+            id: "dh-5",
+            name: "300×600 — Half Page",
+            dim: "300×600",
+            ar: 300 / 600,
+            brand: "Diageo",
+            legal: LEGAL,
+            title: "20% OFF en Buchanan's Deluxe",
+            imageUrl: "/campaigns/diageo-hotsale/display-300x600.svg",
+            fileType: "image",
+            fileName: "display-300x600.svg",
+          },
+        ],
+      },
+    },
+    introData: {
+      "||Display": {
+        title: "Display Ads",
+        subtitle: "Copa Mundial FIFA 2026",
+      },
+    },
+    piecesData: {},
+    slideLegals: {
+      "||Display-intro": {
+        legal: LEGAL,
+        brand: "Diageo",
+      },
+    },
+    adCopyData: {},
+    measuredAr: {},
+  },
+};

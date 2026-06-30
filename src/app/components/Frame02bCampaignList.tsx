@@ -13,7 +13,7 @@ import { NotificationPanel, UserMenu, HelpButton, CreateAINavItem } from "./TopB
 interface Props {
   onBack: () => void;
   onNewCampaign: () => void;
-  onOpenCampaign: () => void;
+  onOpenCampaign: (id: number) => void;
   onViewAccounts?: () => void;
   onViewApprovals?: () => void;
   dark: boolean;
@@ -24,13 +24,13 @@ const ACCENT = "#2c6bf2";
 
 type Status = "active" | "review" | "draft" | "done";
 
-const campaigns: { id: number; name: string; client: string; status: Status; previews: number; updated: string }[] = [
-  { id: 1, name: "Mundial 2026", client: "Éxito", status: "active", previews: 2, updated: "hace 2h" },
-  { id: 2, name: "Evento Etto Q2", client: "Éxito", status: "review", previews: 4, updated: "hace 2h" },
-  { id: 3, name: "Catálogos Junio", client: "Éxito", status: "draft", previews: 8, updated: "hace 5h" },
-  { id: 4, name: "Diageo HotSale", client: "Diageo", status: "done", previews: 6, updated: "ayer" },
-  { id: 5, name: "Refresh de marca Q3", client: "Apex Corp", status: "active", previews: 8, updated: "hace 1 sem" },
-  { id: 6, name: "Lanzamiento Verano 2026", client: "Bloom Studio", status: "review", previews: 14, updated: "ayer" },
+const campaigns: { id: number; name: string; client: string; status: Status; previews: number; updated: string; thumbnail?: string }[] = [
+  { id: 1, name: "Mundial 2026",            client: "Éxito",       status: "active", previews: 2,  updated: "hace 2h" },
+  { id: 2, name: "Evento Etto Q2",          client: "Éxito",       status: "review", previews: 4,  updated: "hace 2h" },
+  { id: 3, name: "Catálogos Junio",         client: "Éxito",       status: "draft",  previews: 8,  updated: "hace 5h" },
+  { id: 4, name: "Diageo HotSale",          client: "Diageo",      status: "done",   previews: 5,  updated: "ayer",        thumbnail: "/campaigns/diageo-hotsale/display-600x315.svg" },
+  { id: 5, name: "Refresh de marca Q3",     client: "Apex Corp",   status: "active", previews: 8,  updated: "hace 1 sem" },
+  { id: 6, name: "Lanzamiento Verano 2026", client: "Bloom Studio",status: "review", previews: 14, updated: "ayer" },
 ];
 
 const STATUS_CONFIG: Record<Status, { label: string; pill: string }> = {
@@ -321,14 +321,17 @@ export function Frame02bCampaignList({ onBack, onNewCampaign, onOpenCampaign, on
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.05, duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                     whileHover={{ y: -3, transition: { duration: 0.15 } }}
-                    onClick={onOpenCampaign}
+                    onClick={() => onOpenCampaign(c.id)}
                     className="group rounded-2xl cursor-pointer transition-colors duration-200"
                     style={{ background: T.page, border: `1px solid ${T.border}` }}
                   >
                     {/* Thumbnail — 3-dots badge floats outside overflow via portal */}
                     <div className="relative m-3">
                       <div className="rounded-xl h-40 overflow-hidden flex items-center justify-center" style={{ background: "linear-gradient(135deg, #eef1f5 0%, #e2e6ec 100%)", border: "1px solid rgba(0,0,0,0.04)" }}>
-                        <ImageIcon size={26} style={{ color: "rgba(0,0,0,0.14)" }} />
+                        {c.thumbnail
+                          ? <img src={c.thumbnail} alt={c.name} className="w-full h-full object-cover" />
+                          : <ImageIcon size={26} style={{ color: "rgba(0,0,0,0.14)" }} />
+                        }
                       </div>
                       {/* Status badge — top left, outside overflow-hidden */}
                       <div className="absolute top-3 left-3 pointer-events-none">
@@ -338,7 +341,7 @@ export function Frame02bCampaignList({ onBack, onNewCampaign, onOpenCampaign, on
                       </div>
                       {/* 3-dots — top right, outside overflow-hidden */}
                       <div className="absolute top-2.5 right-2.5">
-                        <CardMenu onOpenEditor={onOpenCampaign} />
+                        <CardMenu onOpenEditor={() => onOpenCampaign(c.id)} />
                       </div>
                     </div>
 
