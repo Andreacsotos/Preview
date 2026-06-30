@@ -171,6 +171,18 @@ export function Frame02dAprobaciones({ onBack, onViewCampaigns, onViewAccounts, 
                       {/* Timeline */}
                       <ApprovalTimeline campaign={c} dark={dark} />
 
+                      {/* Preview image — shown on completed campaigns that have one */}
+                      {isDone && c.previewUrl && (
+                        <div className="mt-5 rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
+                          <img
+                            src={c.previewUrl}
+                            alt={`Preview ${c.name}`}
+                            className="w-full object-cover"
+                            style={{ maxHeight: 220, display: "block" }}
+                          />
+                        </div>
+                      )}
+
                       {/* Actions */}
                       {!isDone && (
                         <div className="flex items-center justify-end gap-2 mt-5 pt-4" style={{ borderTop: `1px solid ${T.divider}` }}>

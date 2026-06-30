@@ -18,6 +18,7 @@ export interface WorkflowCampaign {
   clientDecision?: "approved" | "changes";
   updatedAt: string;
   dueDate?: string;
+  previewUrl?: string;
 }
 
 export const STEP_ORDER: WorkflowStep[] = [
@@ -141,5 +142,6 @@ export const WORKFLOW_CAMPAIGNS: WorkflowCampaign[] = [
     id: 6, name: "Verano 2026", brand: "Bloom Studio",
     currentStep: "completed", leadDecision: "approved", clientDecision: "approved",
     updatedAt: "hace 6h",
+    previewUrl: "/preview-verano-2026.svg",
   },
 ];
