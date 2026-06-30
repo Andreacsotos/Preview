@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 50" width="300" height="50">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#0d3d1a"/><stop offset="50%" style="stop-color:#1b5e2b"/><stop offset="100%" style="stop-color:#0d3d1a"/></linearGradient>
+    <clipPath id="c"><rect width="300" height="50"/></clipPath>
+  </defs>
+  <g clip-path="url(#c)">
+    <rect width="300" height="50" fill="url(#bg)"/>
+    <rect x="8" y="10" width="30" height="14" rx="2" fill="#1877F2" opacity="0.9"/>
+    <text x="23" y="21" text-anchor="middle" font-family="Arial" font-size="6" font-weight="700" fill="#fff">FIFA 26</text>
+    <line x1="46" y1="8" x2="46" y2="42" stroke="#ffffff22" stroke-width="0.8"/>
+    <text x="53" y="22" font-family="Arial Black, Arial" font-size="9" font-weight="900" fill="#ffffff">MANTÉN EL SABOR ENCENDIDO CON</text>
+    <text x="53" y="38" font-family="Arial Black, Arial" font-size="14" font-weight="900" fill="#f5c518" letter-spacing="-0.5">20% OFF EN BUCHANAN'S DELUXE</text>
+    <line x1="240" y1="8" x2="240" y2="42" stroke="#ffffff18" stroke-width="0.8"/>
+    <text x="270" y="21" text-anchor="middle" font-family="Arial Black" font-size="8" font-weight="900" fill="#f5c518">FIFA</text>
+    <text x="270" y="33" text-anchor="middle" font-family="Arial Black" font-size="9" font-weight="900" fill="#f5c518">2026™</text>
+    <rect x="0" y="44" width="300" height="6" fill="#000" opacity="0.3"/>
+    <text x="150" y="49" text-anchor="middle" font-family="Arial" font-size="4" fill="#ffffff60">Diageo. +18. Válido hasta el 19 Jul 2026.</text>
+  </g>
+</svg>

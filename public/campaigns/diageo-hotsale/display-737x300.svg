@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 737 300" width="737" height="300">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#0d3d1a"/><stop offset="55%" style="stop-color:#1b5e2b"/><stop offset="100%" style="stop-color:#0d3d1a"/></linearGradient>
+    <radialGradient id="glow" cx="70%" cy="40%" r="55%"><stop offset="0%" style="stop-color:#2e7d3248"/><stop offset="100%" style="stop-color:#0d3d1a00"/></radialGradient>
+    <clipPath id="c"><rect width="737" height="300"/></clipPath>
+  </defs>
+  <g clip-path="url(#c)">
+    <rect width="737" height="300" fill="url(#bg)"/>
+    <rect width="737" height="300" fill="url(#glow)"/>
+    <ellipse cx="500" cy="320" rx="420" ry="180" fill="none" stroke="#2e7d3228" stroke-width="1.5"/>
+    <ellipse cx="500" cy="320" rx="320" ry="130" fill="none" stroke="#2e7d3218" stroke-width="1"/>
+    <!-- Top bar -->
+    <rect x="0" y="0" width="737" height="46" fill="#000" opacity="0.22"/>
+    <rect x="20" y="10" width="54" height="22" rx="3" fill="#1877F2" opacity="0.95"/>
+    <text x="47" y="25" text-anchor="middle" font-family="Arial" font-size="11" font-weight="700" fill="#fff">FIFA 26</text>
+    <line x1="84" y1="10" x2="84" y2="36" stroke="#ffffff30" stroke-width="1"/>
+    <text x="96" y="26" font-family="Arial" font-size="11" font-weight="700" fill="#f5c518">BUCHANAN'S</text>
+    <text x="370" y="28" text-anchor="middle" font-family="Arial" font-size="9" fill="#ffffff80" letter-spacing="1.2">PROMOTOR OFICIAL DE LA COPA MUNDIAL DE LA FIFA 2026™</text>
+    <rect x="696" y="10" width="28" height="20" rx="3" fill="#f5c518"/>
+    <text x="710" y="24" text-anchor="middle" font-family="Arial" font-size="7" font-weight="700" fill="#0d3d1a">+18</text>
+    <!-- Left copy -->
+    <text x="22" y="92" font-family="Arial Black, Arial" font-size="24" font-weight="900" fill="#ffffff">MANTÉN</text>
+    <text x="22" y="122" font-family="Arial Black, Arial" font-size="24" font-weight="900" fill="#ffffff">EL SABOR ENCENDIDO CON</text>
+    <text x="22" y="190" font-family="Arial Black, Arial" font-size="62" font-weight="900" fill="#f5c518" letter-spacing="-2">20% OFF</text>
+    <text x="22" y="222" font-family="Arial Black, Arial" font-size="15" font-weight="800" fill="#ffffff">EN BUCHANAN'S DELUXE 750 ML</text>
+    <!-- Bottle -->
+    <rect x="520" y="52" width="110" height="220" rx="10" fill="#1a4a24" opacity="0.6" stroke="#f5c51840" stroke-width="1"/>
+    <text x="575" y="140" text-anchor="middle" font-family="Arial Black" font-size="11" font-weight="900" fill="#f5c518">BUCHANAN'S</text>
+    <text x="575" y="157" text-anchor="middle" font-family="Arial" font-size="9" fill="#fff">DELUXE</text>
+    <rect x="547" y="163" width="56" height="1" fill="#f5c518" opacity="0.5"/>
+    <text x="575" y="188" text-anchor="middle" font-family="Arial Black" font-size="28" fill="#f5c518">12</text>
+    <text x="575" y="206" text-anchor="middle" font-family="Arial" font-size="9" fill="#fff">AÑOS</text>
+    <!-- Glass -->
+    <rect x="646" y="196" width="66" height="72" rx="5" fill="#ffffff10" stroke="#ffffff28" stroke-width="1"/>
+    <rect x="650" y="200" width="58" height="10" rx="2" fill="#ffffff15"/>
+    <!-- Footer -->
+    <rect x="0" y="256" width="737" height="44" fill="#000" opacity="0.4"/>
+    <text x="22" y="276" font-family="Arial Black, Arial" font-size="14" font-weight="900" fill="#f5c518">COPA MUNDIAL DE LA FIFA 2026™</text>
+    <text x="22" y="292" font-family="Arial" font-size="6.5" fill="#ffffff65">Diageo te invita a disfrutar con responsabilidad. Prohibida la venta de bebidas embriagantes a menores. Válido hasta el 19 de julio del 2026. Máximo 3 unidades por transacción.</text>
+  </g>
+</svg>

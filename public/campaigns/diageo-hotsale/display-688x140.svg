@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 688 140" width="688" height="140">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#0d3d1a"/><stop offset="50%" style="stop-color:#1b5e2b"/><stop offset="100%" style="stop-color:#0d3d1a"/></linearGradient>
+    <clipPath id="c"><rect width="688" height="140"/></clipPath>
+  </defs>
+  <g clip-path="url(#c)">
+    <rect width="688" height="140" fill="url(#bg)"/>
+    <ellipse cx="344" cy="220" rx="400" ry="160" fill="none" stroke="#2e7d3228" stroke-width="2"/>
+    <rect x="20" y="18" width="56" height="22" rx="3" fill="#1877F2" opacity="0.9"/>
+    <text x="48" y="33" text-anchor="middle" font-family="Arial" font-size="11" font-weight="700" fill="#fff">FIFA 26</text>
+    <line x1="86" y1="16" x2="86" y2="60" stroke="#ffffff22" stroke-width="1"/>
+    <text x="98" y="34" font-family="Arial" font-size="11" font-weight="700" fill="#f5c518">BUCHANAN'S</text>
+    <line x1="200" y1="16" x2="200" y2="120" stroke="#ffffff18" stroke-width="1"/>
+    <text x="218" y="44" font-family="Arial Black, Arial" font-size="14" font-weight="900" fill="#ffffff">MANTÉN EL SABOR ENCENDIDO CON</text>
+    <text x="218" y="88" font-family="Arial Black, Arial" font-size="38" font-weight="900" fill="#f5c518" letter-spacing="-1">20% OFF</text>
+    <text x="218" y="115" font-family="Arial Black, Arial" font-size="12" font-weight="700" fill="#ffffff">EN BUCHANAN'S DELUXE 750 ML</text>
+    <line x1="550" y1="16" x2="550" y2="120" stroke="#ffffff18" stroke-width="1"/>
+    <text x="570" y="50" font-family="Arial Black, Arial" font-size="12" font-weight="900" fill="#f5c518">COPA MUNDIAL</text>
+    <text x="570" y="68" font-family="Arial Black, Arial" font-size="12" font-weight="900" fill="#f5c518">DE LA FIFA</text>
+    <text x="570" y="92" font-family="Arial Black, Arial" font-size="20" font-weight="900" fill="#f5c518">2026™</text>
+    <rect x="0" y="122" width="688" height="18" fill="#000" opacity="0.35"/>
+    <text x="344" y="134" text-anchor="middle" font-family="Arial" font-size="7" fill="#ffffff70">Diageo te invita a disfrutar con responsabilidad. Prohibida la venta a menores. Válido hasta el 19 de julio del 2026.</text>
+  </g>
+</svg>
